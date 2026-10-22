@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <link href='https://fonts.googleapis.com/css?family=Source Sans Pro' rel='stylesheet'>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- PARTIE graphique -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- PARTIE CSS -->
+  <?!= include("7_CSS/stylesheet"); ?>
+
+</head>
+
+<body>
+
+  <!-- HEADER -->
+  <?!= include("5_Views/navbar"); ?>
+
+
+  <!-- SOUS-VUE 1 : DASHBOARD (Visible par défaut) -->
+  <div id="vue-dashboard">
+    <?!= include("5_Views/dashboard"); ?>
+  </div>
+
+  <!-- SOUS-VUE 2 : INDICATEUR (Masquée par défaut avec hidden) -->
+  <div id="vue-indicateur" class="hidden">
+    <?!= include("5_Views/indicateur"); ?>
+  </div>
+
+  <button class="hidden" onclick="monterHautPage()" id="btn-fleche" title="Retour en haut">
+  <i class="fa-solid fa-chevron-up"></i>
+  </button>
+
+<!-- Div pour l'écran de chargement (avec le contenu déjà présent) -->
+<div id="chargement" class="hidden">
+  <div class="ecran-chargement">
+    <i class="fa-solid fa-spinner fa-spin cooperl_pink"></i>
+    <span>Chargement...</span>
+  </div>
+</div>
+
+  <!-- Div pour les toast -->
+  <div id="toast"></div>
+
+  <!-- MODALE HORS-LIGNE -->
+<div class="modal hidden" id="modal-hors-ligne">
+  <div class="modal-window" style="max-width: 450px; text-align: center;">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-wifi-slash"></i> Connexion perdue</h3>
+    </div>
+    <div class="modal-body">
+      <p style="font-size: 15px; margin: 15px 0;">
+        Vous n'avez plus de connexion Internet. Veuillez vérifier votre réseau pour continuer.
+      </p>
+      <div style="font-size: 24px; color: #f086a4;">
+        <i class="fa-solid fa-spinner fa-spin"></i>
+      </div>
+      <p style="font-size: 11px; opacity: 0.7; margin-top: 10px;">
+        Tentative de reconnexion automatique en cours...
+      </p>
+    </div>
+  </div>
+</div>
+
+
+  <!-- SCRIPT JS -->
+  <?!= include("6_Js/methodes"); ?>
+  <?!= include("6_Js/pageUtilisateurJs"); ?>
+  <?!= include("6_Js/dashboardJs"); ?>
+  <?!= include("6_Js/indicateur"); ?>
+
+
+</body>
+
+</html>

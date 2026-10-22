@@ -1,0 +1,303 @@
+<script>
+  // DÉCLARATION DES VARIABLES
+
+  // Variable de temps
+  let TEMPS_AFFICHAGE_QUAI = 10000;
+  let TEMPS_AFFICHAGE_ATTENTE = 5000
+  let NB_ATTENTE_PAR_PAGE = 9;
+  let TEMPS_DEMANDE_DASHBOARD = 5000;
+
+const STATUTS_CONFIG = new Map([
+  ["À Quai",                 ["icone-quai",          "fa-solid fa-warehouse"]],
+  ["En Chargement",          ["icone-chargement",    "fa-solid fa-dolly"]],
+  ["Anomalie",               ["icone-anomalie",      "fa-solid fa-triangle-exclamation"]],
+  ["Attente administrative", ["icone-attente-admin", "fa-solid fa-file-lines"]],
+  ["Prêt",                   ["icone-pret",          "fa-solid fa-circle-check"]],
+  ]);
+
+  let cacheEnregistrements = null; 
+  let indexPageCourante = 0;
+
+  let dernierOrdreExecute = "";
+  let nomVue = "fidsQuai";
+  let affichageAlternee = null; 
+  let enPause = false;
+
+  // Constante des vues
+  const vueAttente = document.getElementById('vue-fidsAttente');
+  const vueQuai = document.getElementById('vue-fidsQuai');
+  const vuePlan = document.getElementById('vue-plan');
+  const vueInstruction = document.getElementById('vue-instruction');
+
+
+  const navbar = document.getElementById('navbar-cooperl');
+  const titreFidsQuai = document.getElementById('nav-titreQuai');
+  const titreFidsAttente = document.getElementById('nav-titreAttente');
+  const titreAttentePage = document.getElementById('titreAttente');
+  const ongletsDashboard = document.getElementById('nav-ancre');
+  const tbodyQuai = document.getElementById('corps-tableau-quai');
+  const tbodyAttente = document.getElementById('corps-tableau-attente');
+  const instructionFr = document.getElementById('instruction-Fr');
+  const instructionTraduite = document.getElementById('instruction-Traduite');
+
+  // Configuration initiale de la vue Quai
+  titreFidsQuai.classList.toggle('hidden', false);
+  titreFidsAttente.classList.toggle('hidden', true);
+  vueQuai.classList.toggle('hidden', false);
+  vueAttente.classList.toggle('hidden', true);
+  ongletsDashboard.classList.add('hidden');
+
+// Masquer les vues et stopper la rotation automatique
+  function masquerVues(){
+    if (affichageAlternee) {
+      clearTimeout(affichageAlternee);
+      affichageAlternee = null;
+    }
+    vueAttente.classList.add("hidden");
+    vueQuai.classList.add("hidden");
+    vuePlan.classList.add("hidden");
+    vueInstruction.classList.add("hidden");
+  }
+
+
+  // Fonction pour alterner entre les 2 vues FIDS
+  function affichageFids() {
+
+    if (enPause || !cacheEnregistrements) return;
+    const totalPages = getNbPage(cacheEnregistrements);
+    // Passe à la page suivante (ex: 0 -> 1 -> 2 -> 0 -> 1...)
+    indexPageCourante = (indexPageCourante + 1) % totalPages;
+
+    if (indexPageCourante === 0 ) { // partie Quai
+      chargerEnregistrementsFIDS();
+
+      vueQuai.classList.toggle('hidden', false);
+      vueAttente.classList.toggle('hidden', true);
+      titreFidsQuai.classList.toggle('hidden', false);
+      titreFidsAttente.classList.toggle('hidden', true); 
+      nomVue = "fidsQuai";
+      
+    } else { // Partie Attente
+      vueQuai.classList.toggle('hidden', true);
+      vueAttente.classList.toggle('hidden', false);  
+      titreFidsQuai.classList.toggle('hidden', true);
+      titreFidsAttente.classList.toggle('hidden', false); 
+      nomVue = "fidsAttente";
+
+      const numPageAttente = indexPageCourante - 1;
+      const nbPagesAttenteTotales = totalPages - 1;
+      remplirPageAttente(cacheEnregistrements.attente, numPageAttente, nbPagesAttenteTotales);
+    }
+    prochaineRotation();
+  }
+
+// Écoute des ordres du serveur 
+  function ecouterOrdresServeur() {
+    google.script.run.withSuccessHandler(function(response) {
+      if (!response || !response.type) return;
+
+      let ordre = response.type;
+      let donnees = response.donnees; // Contient { fr: "...", traduction: "..." }
+
+      // Mise à jour des temps en arrière-plan
+      if (donnees.tempsQuai) {
+        TEMPS_AFFICHAGE_QUAI = donnees.tempsQuai * 1000;
+      }
+      if (donnees.tempsAttente) {
+        TEMPS_AFFICHAGE_ATTENTE = donnees.tempsAttente * 1000;
+      }
+
+      if (ordre ==="pause"){
+        enPause = true;
+        clearTimeout(affichageAlternee);
+        affichageAlternee = null;
+        console.log(enPause);
+      }
+
+    // Exclure les temps du calcul de la signature pour ne pas recharger l'écran inutilement
+    let donneesSansTemps = {};
+    for (let cle in donnees) {
+      if (cle !== 'tempsQuai' && cle !== 'tempsAttente') {
+        donneesSansTemps[cle] = donnees[cle];
+      }
+    }
+
+    // Signature basée uniquement sur l'ordre et le contenu utile (ex: texte d'instruction ou id de plan)
+    const signatureActuelle = ordre + "_" + JSON.stringify(donneesSansTemps);
+
+      if (ordre !== "AUCUN" && signatureActuelle !== dernierOrdreExecute) {
+        dernierOrdreExecute = signatureActuelle;
+
+        if (ordre === "plan") {
+          masquerVues();
+          if (navbar) navbar.classList.add('hidden');
+          vuePlan.classList.remove('hidden');
+          console.log(response);
+          modifierPlan(response.donnees.typePlan);
+
+        } else if (ordre === "fids") {
+          enPause = false;
+          masquerVues();
+          vueQuai.classList.remove('hidden');
+          nomVue = "fidsQuai";
+          indexPageCourante = 0;
+          if (navbar) navbar.classList.remove('hidden');
+
+          if (!affichageAlternee) {
+            prochaineRotation();
+          } 
+
+        } else if (ordre === "instruction") {
+          enPause = false;
+          masquerVues(); // Stoppe aussi le timer de la rotation
+          if (navbar) navbar.classList.add('hidden');
+          if (vueInstruction) vueInstruction.classList.remove('hidden');
+
+          // Injection des textes FR et Traduction
+          if (donnees) {
+            if (instructionFr) instructionFr.innerText = donnees.fr || "";
+            if (instructionTraduite) instructionTraduite.innerText = donnees.traduction || "";
+          }
+        } 
+      }
+    }).recevoirCacheFids();
+  }
+
+  // Charge les données serveur
+  function chargerEnregistrementsFIDS() {
+    google.script.run
+      .withSuccessHandler(function(donnees) {
+        remplirTablesFIDS(donnees);
+      })
+      .withFailureHandler(function(erreur) {
+        afficherToast("Erreur système : " + erreur.message, "error");
+        afficherIndicateurChargement(false);
+      })
+      .apiGetEnregistrementFIDS();
+  } 
+
+  // Remplit les tableaux et déclenche l'affichage
+  function remplirTablesFIDS(donnees) {
+    if (!donnees || !donnees.quai) return;
+
+    cacheEnregistrements = donnees ; 
+
+    const nbPageMax = getNbPage(cacheEnregistrements);
+
+    // 1. Remplissage du tableau Quais
+    tbodyQuai.innerHTML = '';
+    const taille = Object.keys(donnees.quai).length;
+
+    for (let i = 1; i <= taille; i++) {
+      const quaiData = donnees.quai[i];
+      const tr = document.createElement('tr');
+      if(quaiData.etat === 'Hors Service'){
+        tr.classList.add("trHorsService");
+        tr.innerHTML = `
+          <td>${i}</td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td><i class="icone-fids icone-hs fa-solid fa-wrench" title="Hors service"></i>
+        `;
+      }else{
+        tr.classList.add("trEnregistrement");
+        tr.innerHTML = `
+          <td>${i}</td>
+          <td>${quaiData?.enregistrement?.transporteur || ''}</td>
+          <td>${quaiData?.enregistrement?.immatriculation || ''}</td>
+          <td>${quaiData?.enregistrement?.client || ''}</td>
+          <td>${formaterIconeFids(quaiData?.enregistrement?.statut) || ''}</td>
+        `;
+      }
+
+      tbodyQuai.appendChild(tr);
+    }
+
+    // Masquer le loader une fois le rendu terminé
+    afficherIndicateurChargement(false);
+
+    // Lancer la rotation automatique uniquement après le premier chargement
+    if (!affichageAlternee && dernierOrdreExecute !== 'plan') {
+      prochaineRotation();
+    }
+  }
+
+
+  function getNbPage(donnees){
+    if (!donnees) return;
+    const nbPageAttente = Math.ceil(donnees.attente.length / NB_ATTENTE_PAR_PAGE) ;  
+    if( nbPageAttente > 0){
+      const nbPage = 1 + nbPageAttente ;
+      return nbPage;
+    }else{
+      return 2;
+    }
+    
+  }
+
+  function remplirPageAttente(donnees , nbP , nbPMax){
+    tbodyAttente.innerHTML = '';
+
+    if (donnees) {
+      if (nbPMax > 1) {
+      titreAttentePage.innerText = `(${nbP + 1}/${nbPMax})`;
+    } else {
+      titreAttentePage.innerText = ``;
+    }
+
+    const debut = nbP * NB_ATTENTE_PAR_PAGE;
+    const enregistrements = donnees.slice(debut, debut + NB_ATTENTE_PAR_PAGE);
+
+      enregistrements.forEach(enregistrement => {
+        const tr = document.createElement('tr');
+        tr.classList.add("trEnregistrement");
+        tr.innerHTML = `
+          <td>${enregistrement.transporteur || ''}</td>
+          <td>${enregistrement.immatriculation || ''}</td>
+          <td>${enregistrement.client || ''}</td>
+          <td>${enregistrement.heure_arrivee || ''}</td>
+        `;
+        tbodyAttente.appendChild(tr);
+      });
+    }
+  }
+
+
+  function prochaineRotation(){
+    if (affichageAlternee) {
+      clearTimeout(affichageAlternee);
+      affichageAlternee = null;
+    }
+    // Arrêt si en pause ou sur une vue fixe (plan/instruction)
+    if (enPause || dernierOrdreExecute.startsWith('plan') || dernierOrdreExecute.startsWith('instruction')) {
+      return;
+    }
+
+    // Choisit le temps en fonction de la vue qui VENAIT d'être affichée ou configurée
+    const delai = (nomVue === "fidsQuai") ? TEMPS_AFFICHAGE_QUAI : TEMPS_AFFICHAGE_ATTENTE;
+
+    // Planifie le prochain appel de affichageFids() avec le bon délai
+    affichageAlternee = setTimeout(affichageFids, delai);
+  } 
+
+function formaterIconeFids(statut) {
+  if (!statut ) return '';
+
+  const config = STATUTS_CONFIG.get(statut.trim()) || ['', ''];
+  const [classeCouleur, classeIcone] = config ;
+
+  return `<i class="icone-fids ${classeIcone} ${classeCouleur}" title="${statut}"></i>`;
+}
+
+
+
+  // --- INITIALISATION PROPRE ---
+  afficherIndicateurChargement(true);
+  
+  // Lancement du premier chargement
+  chargerEnregistrementsFIDS();
+
+  // Interrogations périodiques
+  setInterval(ecouterOrdresServeur, TEMPS_DEMANDE_DASHBOARD);
+</script>

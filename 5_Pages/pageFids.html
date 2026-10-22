@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <link href='https://fonts.googleapis.com/css?family=Source Sans Pro' rel='stylesheet'>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- PARTIE CSS -->
+  <?!= include("7_CSS/stylesheet"); ?>
+</head>
+
+<body class="page-fids">
+
+  <!-- HEADER -->
+  <?!= include("5_Views/navbar"); ?>
+
+  <!-- SOUS-VUE 1 : page FIDS Quai (Visible par défaut) -->
+  <div id="vue-fidsQuai">
+    <?!= include("5_Views/fidsQuai"); ?>
+  </div>
+
+  <!-- SOUS-VUE 2 : page FIDS Attente (Masquée par défaut avec hidden) -->
+  <div id="vue-fidsAttente" class="hidden">
+    <?!= include("5_Views/fidsAttente"); ?>
+  </div>
+
+  <!-- SOUS-VUE 3 : page Plan d'orientation(Masquée par défaut avec hidden) -->
+  <div id="vue-plan" class="hidden">
+    <?!= include("5_Views/planOrientation"); ?>
+  </div>
+
+  <!-- SOUS-VUE 4 : page instructions (Masquée par défaut avec hidden) -->
+  <div id="vue-instruction" class="hidden">
+    <p id="instruction-Fr"></p>
+    <p id="instruction-Traduite"></p>
+  </div>
+
+
+
+  <!-- Div pour l'écran de chargement -->
+<div id="chargement" class="hidden">
+  <div class="ecran-chargement">
+    <i class="fa-solid fa-spinner fa-spin cooperl_pink"></i>
+    <span>Chargement...</span>
+  </div>
+</div>
+
+
+  <!-- PARTIE Js -->
+  <?!= include("6_Js/methodes"); ?>
+  <?!= include("6_Js/pageFidsJs"); ?>
+
+
+
+</body>
+
+</html>

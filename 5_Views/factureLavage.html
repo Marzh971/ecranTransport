@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base target="_top">
+  <title>Facture Lavage</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 10mm;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      font-size: 15px;
+    }
+
+    .tableau-facture {
+      width: 85%;
+      max-width: 850px;
+      height: 90vh;
+      margin: 0 auto;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .colonne {
+      width: 50%;
+      border: 1px solid #000;
+      padding: 25px 30px;
+      vertical-align: top;
+      box-sizing: border-box;
+    }
+
+    .colonne:first-child {
+      border-right: 1px dashed #000;
+    }
+
+    .entete {
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 50px;
+      line-height: 1.5;
+    }
+
+    .champ {
+      margin: 35px 0;
+      line-height: 1.6;
+    }
+
+    .signature {
+      margin-top: 100px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+  <table class="tableau-facture">
+    <tr>
+      <!-- EXEMPLAIRE 1 -->
+      <td class="colonne">
+        <div class="entete">
+          COOPERL ARC ATLANTIQUE<br>
+            Bd de l’Abbaye – BP 96238<br>
+            35162 Montfort-sur-Meu Cedex
+        </div>
+        <div class="champ"><strong>Transport :</strong>
+          <?= donnees.transporteur ?>
+        </div>
+        <div class="champ"><strong>Immatriculation :</strong>
+          <?= donnees.immatriculation || '' ?>
+        </div>
+        <div class="champ">Facture pour un lavage <strong><?= donnees.prix ?></strong> euros</div>
+        <div class="champ">Montfort sur Meu le :
+          <?= donnees.date ?>
+        </div>
+        <div class="signature">Signature :</div>
+      </td>
+      <!-- EXEMPLAIRE 2 -->
+      <td class="colonne">
+        <div class="entete">
+          COOPERL ARC ATLANTIQUE<br>
+            Bd de l’Abbaye – BP 96238<br>
+            35162 Montfort-sur-Meu Cedex
+        </div>
+        <div class="champ"><strong>Transport :</strong>
+          <?= donnees.transporteur ?>
+        </div>
+        <div class="champ"><strong>Immatriculation :</strong>
+          <?= donnees.immatriculation || '' ?>
+        </div>
+        <div class="champ">Facture pour un lavage <strong><?= donnees.prix ?></strong> euros</div>
+        <div class="champ">Montfort sur Meu le :
+          <?= donnees.date ?>
+        </div>
+        <div class="signature">Signature :</div>
+      </td>
+    </tr>
+  </table>
+
+  <script>
+    window.onload = function() {
+        window.print();
+      };
+  </script>
+</body>
+
+</html>

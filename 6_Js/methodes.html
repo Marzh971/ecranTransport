@@ -1,0 +1,67 @@
+<script>
+function afficherIndicateurChargement(boleen) {
+  const zone = document.getElementById('chargement');
+  if (!zone) return;
+
+  if (boleen) {
+    zone.classList.remove('hidden');
+  } else {
+    zone.classList.add('hidden');
+  }
+}
+
+
+  function modifierPlan(idPlan) {
+    // Cacher tous les éléments qui ont un ID dans le SVG
+    const tousLesIds = [
+    "pesee_zone",
+    "pesee_itineraire",
+    "lavage_zone",
+    "lavage_itineraire",
+    "parkingAttente_zone",
+    "parkingAttente_itineraire",
+    "parkingAdministratif_zone_1",
+    "parkingAdministratif_zone_2",
+    "parkingAdministratif_itineraire",
+    "quai1", "quai2", "quai3", "quai4", "quai5", "quai6", "quai7", "quai8", "quai9", "quaiA", "quaiB"
+  ];
+  console.log(idPlan);
+    
+    //  Parcourir et afficher seulement ceux qui commencent par idPlan
+    tousLesIds.forEach(id => {
+      const element = document.getElementById(id);
+      if (element.id.startsWith(idPlan) && idPlan !== "") {
+        element.classList.remove('hidden');
+      } else {
+        element.classList.add('hidden');
+      }
+    });
+  }
+
+
+  function recupererPlan(idConteneur){
+
+    const conteneur = document.getElementById(idConteneur);
+    if (!conteneur) return;
+
+    google.script.run
+      .withSuccessHandler(function(svgCode) {  
+        conteneur.innerHTML = svgCode;
+        // Nettoyage automatique des dimensions fixes du SVG
+        const svgElement = conteneur.querySelector("svg");
+        if (svgElement) {
+          svgElement.removeAttribute("width");
+          svgElement.removeAttribute("height");
+          svgElement.setAttribute("preserveAspectRatio", "xMidYMid meet");
+          svgElement.style.width = "100%";
+          svgElement.style.height = "100%";
+        }
+      })
+      .withFailureHandler(function(){
+        console.log("erreur lors du chargement du plan");
+      })
+    .apiGetContenuSvgPlan();
+  }
+
+
+</script>

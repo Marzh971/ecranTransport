@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Information Vente Barre d'Arrimage</title>
+</head>
+
+<body
+  style="margin: 0; padding: 0; background-color: #f4f6f8; font-family: 'Source Sans Pro', Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+
+  <!-- CONTENEUR PRINCIPAL -->
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+    style="background-color: #f4f6f8; padding: 20px 0;">
+    <tr>
+      <td align="center">
+
+        <!-- CARTE EMAIL -->
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+          style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.08); border: 1px solid #e1e6eb;">
+
+          <!-- EN-TÊTE -->
+          <tr>
+            <td style="background-color: #003d52; padding: 24px 30px; text-align: center;">
+              <h1 style="color: #ffffff; font-size: 20px; margin: 0; font-weight: 700; letter-spacing: 0.5px;">
+                COOPERL ARC ATLANTIQUE
+              </h1>
+            </td>
+          </tr>
+
+          <!-- CONTENU -->
+          <tr>
+            <td style="padding: 30px; color: #2c3e50; font-size: 15px; line-height: 1.6;">
+              <p style="margin-top: 0; font-size: 16px; font-weight: 600; color: #003d52;">
+                Bonjour,
+              </p>
+
+              <p style="margin: 16px 0;">
+                Nous vous informons qu'il a été mis dans votre camion, le
+                <strong style="color: #003d52;"><?= donnees.dateJour ?></strong>,
+                <strong style="color: #003d52;"><?= donnees.nbBarres ?> barre(s) d'arrimage</strong>.
+              </p>
+
+              <!-- ENCADRÉ D'INFORMATION -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                style="margin: 24px 0;">
+                <tr>
+                  <td
+                    style="background-color: #f0f7fa; border-left: 4px solid #f086a4; padding: 16px; border-radius: 0 6px 6px 0;">
+                    <p style="margin: 0; color: #0d5973; font-size: 14px; font-weight: 600;">
+                      <span style="color: #f086a4;">&#9432;</span> Facturation :
+                    </p>
+                    <p style="margin: 4px 0 0 0; color: #4a5568; font-size: 14px;">
+                      Notre fournisseur vous adressera directement la facture correspondante.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              <!-- SIGNATURE (Intégrée dans la cellule de contenu) -->
+              <p style="margin: 25px 0 0 0; color: #2c3e50;">
+                Cordialement,<br>
+                <strong style="color: #003d52;">Le service Expédition Cooperl</strong>
+              </p>
+            </td>
+          </tr>
+
+
+          <!-- PIED DE PAGE -->
+          <tr>
+            <td
+              style="background-color: #f8fafc; padding: 16px 30px; text-align: center; border-top: 1px solid #e1e6eb; font-size: 12px; color: #718096;">
+              Ceci est un message automatique, merci de ne pas y répondre directement.
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+
+</html>

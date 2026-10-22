@@ -1,0 +1,478 @@
+<script>
+  // Caches locaux
+  let cacheKpiEnregistrements = [];
+  let cacheKpiAnomalies = [];
+
+  // Instances Chart.js
+  let instanceChartPie = null;
+  let instanceChartBar = null;
+
+  /**
+   * DÉCLARATION SÉCURISÉE DES PLUGINS CHART.JS
+   * (Utilise window pour éviter les erreurs 'has already been declared')
+   */
+  if (typeof window.pluginFondSombreCanvas === "undefined") {
+    window.pluginFondSombreCanvas = {
+      id: 'customCanvasBackgroundColor',
+      beforeDraw: (chart) => {
+        const { ctx } = chart;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = '#001f2b'; // Fond sombre Cooperl conservé lors d'une copie d'image
+        ctx.fillRect(0, 0, chart.width, chart.height);
+        ctx.restore();
+      }
+    };
+  }
+
+  if (typeof window.pluginNoData === "undefined") {
+    window.pluginNoData = {
+      id: 'noDataMessage',
+      afterDraw: function(chart) {
+        const datasets = chart.data.datasets;
+        let hasData = false;
+
+        if (datasets && datasets.length > 0) {
+          datasets.forEach(ds => {
+            if (ds.data && ds.data.some(val => val > 0)) {
+              hasData = true;
+            }
+          });
+        }
+
+        if (!hasData) {
+          const ctx = chart.ctx;
+          const width = chart.width;
+          const height = chart.height;
+
+          chart.clear();
+          ctx.save();
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.font = '14px "Source Sans Pro", sans-serif';
+          ctx.fillStyle = '#a1c2d2';
+          ctx.fillText('Aucune donnée sur cette période', width / 2, height / 2);
+          ctx.restore();
+        }
+      }
+    };
+  }
+
+  /**
+   * 1. REQUÊTE SERVEUR
+   */
+  function chargerDonneesIndicateursServeur() {
+    const dDebut = document.getElementById("dateDebutKpi")?.value;
+    const dFin = document.getElementById("dateFinKpi")?.value;
+
+    if (!dDebut || !dFin) {
+      if (typeof afficherToast === "function") afficherToast("Veuillez sélectionner une période.", "error");
+      return;
+    }
+
+    if (typeof afficherIndicateurChargement === "function") afficherIndicateurChargement(true);
+
+    google.script.run
+      .withSuccessHandler(function(reponse) {
+        if (typeof afficherIndicateurChargement === "function") afficherIndicateurChargement(false);
+
+        if (!reponse || !reponse.success) {
+          if (typeof afficherToast === "function") afficherToast(reponse?.message || "Erreur de chargement.", "error");
+          return;
+        }
+
+        cacheKpiEnregistrements = reponse.enregistrements || [];
+        cacheKpiAnomalies = reponse.anomalies || [];
+
+        appliquerFiltresInstantanesKpi();
+      })
+      .withFailureHandler(function(erreur) {
+        if (typeof afficherIndicateurChargement === "function") afficherIndicateurChargement(false);
+        if (typeof afficherToast === "function") afficherToast("Erreur système : " + erreur.message, "error");
+      })
+      .apiGetDonneesIndicateursAvecArchives(dDebut, dFin);
+  }
+
+  /**
+   * 2. FILTRAGE LOCAL INSTANTANÉ
+   */
+  function appliquerFiltresInstantanesKpi() {
+    const transporteurVal = (document.getElementById("filtre-kpi-t")?.value || "").toLowerCase().trim();
+    const clientVal = (document.getElementById("filtre-kpi-c")?.value || "").toLowerCase().trim();
+
+    const enregistrementsFiltres = cacheKpiEnregistrements.filter(item => {
+      const matchT = !transporteurVal || (item.transporteur || "").toLowerCase().includes(transporteurVal);
+      const matchC = !clientVal || (item.client || "").toLowerCase().includes(clientVal);
+      return matchT && matchC;
+    });
+
+    const anomaliesFiltrees = cacheKpiAnomalies.filter(item => {
+      const matchT = !transporteurVal || (item.transporteur || "").toLowerCase().includes(transporteurVal);
+      const matchC = !clientVal || (item.client || "").toLowerCase().includes(clientVal);
+      return matchT && matchC;
+    });
+
+    genererTableauCamionsParJour(enregistrementsFiltres);
+    genererDiagrammeCamembertAnomalies(anomaliesFiltrees);
+    genererDiagrammeDureesAnomalies(anomaliesFiltrees);
+    genererTableauDetailAnomalies(anomaliesFiltrees);
+  }
+
+  /**
+   * INDICATEUR 1 : Tableau camions par jour
+   */
+  function genererTableauCamionsParJour(enregistrements) {
+    const corpsTableau = document.getElementById("corps-tableau-kpi-jours");
+    const badgeTotal = document.getElementById("badge-total-camions");
+    if (!corpsTableau) return;
+
+    corpsTableau.innerHTML = "";
+    const cumulParJour = {};
+
+    (enregistrements || []).forEach(e => {
+      const dateCle = String(e.date || "").split('T')[0];
+      if (dateCle) {
+        cumulParJour[dateCle] = (cumulParJour[dateCle] || 0) + 1;
+      }
+    });
+
+    const datesTriees = Object.keys(cumulParJour).sort();
+    let totalGlobal = 0;
+
+    if (datesTriees.length === 0) {
+      corpsTableau.innerHTML = `<tr><td colspan="3" style="text-align:center; padding: 20px; color: #a1c2d2;">Aucun enregistrement trouvé.</td></tr>`;
+    } else {
+      datesTriees.forEach(dateStr => {
+        const nb = cumulParJour[dateStr];
+        totalGlobal += nb;
+
+        const d = new Date(dateStr);
+        const nomJour = isNaN(d.getTime()) ? "-" : d.toLocaleDateString('fr-FR', { weekday: 'long' });
+        const dateFr = isNaN(d.getTime()) ? dateStr : d.toLocaleDateString('fr-FR');
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${dateFr}</strong></td>
+          <td style="text-transform: capitalize;">${nomJour}</td>
+          <td><strong>${nb}</strong></td>
+        `;
+        corpsTableau.appendChild(tr);
+      });
+    }
+
+    if (badgeTotal) {
+      badgeTotal.innerText = `${totalGlobal} camion${totalGlobal > 1 ? 's' : ''}`;
+    }
+  }
+
+  /**
+   * INDICATEUR 2 : Diagramme Camembert
+   */
+  function genererDiagrammeCamembertAnomalies(anomalies) {
+    if (typeof Chart === "undefined") return;
+    const elCanvas = document.getElementById('chartPieAnomalies');
+    const badgeTotalAno = document.getElementById('badge-total-anomalies'); 
+    if (!elCanvas) return;
+    const ctx = elCanvas.getContext('2d');
+
+    const repartition = {};
+    const detailsParType = {}; 
+    let totalAnomalies = 0;
+
+    (anomalies || []).forEach(a => {
+      const type = a.type_anomalie || "Non spécifié";
+      repartition[type] = (repartition[type] || 0) + 1;
+      
+      if (!detailsParType[type]) {
+        detailsParType[type] = [];
+      }
+      detailsParType[type].push(a);
+
+      totalAnomalies++;
+    });
+
+    if (badgeTotalAno) {
+      badgeTotalAno.innerText = `${totalAnomalies} anomalie${totalAnomalies > 1 ? 's' : ''}`;
+    }
+    
+    const entreesTriees = Object.entries(repartition).sort((a, b) => b[1] - a[1]);
+    const labels = entreesTriees.map(e => e[0]);
+    const data = entreesTriees.map(e => e[1]);
+    const detailsOrdonnes = labels.map(type => detailsParType[type] || []);
+
+    if (instanceChartPie) instanceChartPie.destroy();
+
+    instanceChartPie = new Chart(ctx, {
+      type: 'pie',
+      plugins: [window.pluginFondSombreCanvas, window.pluginNoData],
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          backgroundColor: ['#f086a4', '#38bdf8', '#f59e0b', '#1bbe83', '#8b00ed', '#e63946', '#2ec4b6', '#ff9f1c'],
+          borderWidth: 1,
+          borderColor: '#001f2b',
+          listeAnomaliesDetails: detailsOrdonnes 
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              color: '#ffffff',
+              font: { size: 12 },
+              generateLabels: function(chart) {
+                const data = chart.data;
+                if (data.labels.length && data.datasets.length && data.datasets[0].data.length > 0) {
+                  return data.labels.map((label, i) => {
+                    const value = data.datasets[0].data[i];
+                    const percentage = totalAnomalies > 0 ? ((value / totalAnomalies) * 100).toFixed(1) : 0;
+                    return {
+                      text: `${label} (${percentage}%)`,
+                      fontColor: '#ffffff',
+                      fillStyle: data.datasets[0].backgroundColor[i],
+                      strokeStyle: data.datasets[0].borderColor,
+                      lineWidth: data.datasets[0].borderWidth,
+                      hidden: isNaN(data.datasets[0].data[i]) || chart.getDatasetMeta(0).data[i].hidden,
+                      index: i
+                    };
+                  });
+                }
+                return [];
+              }
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const label = context.label || '';
+                const value = context.parsed || 0;
+                const percentage = totalAnomalies > 0 ? ((value / totalAnomalies) * 100).toFixed(1) : 0;
+                const idx = context.dataIndex;
+                const listeDetails = context.dataset.listeAnomaliesDetails ? context.dataset.listeAnomaliesDetails[idx] : [];
+
+                let lignesTooltip = [` ${label} : ${value} (${percentage}%)`];
+                const limiteMax = 5;
+                const listeAffichee = listeDetails.slice(0, limiteMax);
+
+                listeAffichee.forEach(ano => {
+                  let dateStr = "-";
+                  if (ano.horodatage_debut || ano.date) {
+                    const d = new Date(ano.horodatage_debut || ano.date);
+                    dateStr = !isNaN(d.getTime()) ? d.toLocaleDateString('fr-FR') : (ano.horodatage_debut || ano.date);
+                  }
+                  const clientStr = ano.client || "Inconnu";
+                  const transpStr = ano.transporteur || "Inconnu";
+
+                  lignesTooltip.push(`  • ${dateStr} - ${clientStr} (${transpStr})`);
+                });
+
+                if (listeDetails.length > limiteMax) {
+                  lignesTooltip.push(`  ... et ${listeDetails.length - limiteMax} autre(s)`);
+                }
+
+                return lignesTooltip;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * INDICATEUR 3 : Diagramme en Barres
+   */
+  function genererDiagrammeDureesAnomalies(anomalies) {
+    if (typeof Chart === "undefined") return;
+    const elCanvas = document.getElementById('chartBarDurees');
+    if (!elCanvas) return;
+    const ctx = elCanvas.getContext('2d');
+
+    const statsDuree = {};
+
+    (anomalies || []).forEach(a => {
+      const type = a.type_anomalie || "Autre";
+
+      if (!statsDuree[type]) {
+        statsDuree[type] = { cumul: 0, compte: 0 };
+      }
+
+      if (a.horodatage_debut && a.horodatage_fin) {
+        const debut = new Date(a.horodatage_debut);
+        const fin = new Date(a.horodatage_fin);
+
+        if (!isNaN(debut.getTime()) && !isNaN(fin.getTime())) {
+          const dureeMinutes = Math.max(0, Math.round((fin - debut) / 60000));
+          statsDuree[type].cumul += dureeMinutes;
+          statsDuree[type].compte += 1;
+        }
+      } else {
+        statsDuree[type].compte += 1;
+      }
+    });
+
+    const entreesTriees = Object.entries(statsDuree).sort((a, b) => b[1].cumul - a[1].cumul);
+    const labels = entreesTriees.map(e => e[0]);
+    const dureesMoyennes = entreesTriees.map(e => e[1].compte > 0 ? Math.round(e[1].cumul / e[1].compte) : 0);
+    const dureesCumulees = entreesTriees.map(e => e[1].cumul);
+
+    if (instanceChartBar) instanceChartBar.destroy();
+
+    const gradientRose = ctx.createLinearGradient(0, 0, 0, 300);
+    gradientRose.addColorStop(0, '#f086a4');
+    gradientRose.addColorStop(1, '#a84360');
+
+    const gradientCyan = ctx.createLinearGradient(0, 0, 0, 300);
+    gradientCyan.addColorStop(0, '#38bdf8');
+    gradientCyan.addColorStop(1, '#0284c7');
+
+    instanceChartBar = new Chart(ctx, {
+      type: 'bar',
+      plugins: [window.pluginFondSombreCanvas, window.pluginNoData],
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Durée Moyenne (min)',
+            data: dureesMoyennes,
+            backgroundColor: gradientRose,
+            borderRadius: 6
+          },
+          {
+            label: 'Durée Totale Cumulée (min)',
+            data: dureesCumulees,
+            backgroundColor: gradientCyan,
+            borderRadius: 6
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { ticks: { color: '#ffffff' }, grid: { color: 'rgba(20, 97, 125, 0.3)' } },
+          y: { ticks: { color: '#ffffff' }, grid: { color: 'rgba(20, 97, 125, 0.3)' } }
+        },
+        plugins: {
+          legend: { labels: { color: '#ffffff' } }
+        }
+      }
+    });
+  }
+
+  /**
+   * INDICATEUR 4 : Tableau détaillé des anomalies
+   */
+  function genererTableauDetailAnomalies(anomalies) {
+    const corpsTableau = document.getElementById("corps-tableau-kpi-anomalies");
+    const badgeTotalDetail = document.getElementById("badge-total-detail-anomalies");
+    if (!corpsTableau) return;
+
+    corpsTableau.innerHTML = "";
+
+    const total = anomalies ? anomalies.length : 0;
+    if (badgeTotalDetail) {
+      badgeTotalDetail.innerText = `${total} anomalie${total > 1 ? 's' : ''}`;
+    }
+
+    if (!anomalies || anomalies.length === 0) {
+      corpsTableau.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px; color: #a1c2d2;">Aucune anomalie enregistrée sur cette période.</td></tr>`;
+      return;
+    }
+
+    const anomaliesTriees = [...anomalies].sort((a, b) => new Date(b.horodatage_debut) - new Date(a.horodatage_debut));
+
+    anomaliesTriees.forEach(a => {
+      let dateStr = "-";
+      if (a.horodatage_debut) {
+        const d = new Date(a.horodatage_debut);
+        dateStr = !isNaN(d.getTime()) ? d.toLocaleString('fr-FR') : a.horodatage_debut;
+      }
+
+      let dureeMinutes = "-";
+      if (a.horodatage_debut && a.horodatage_fin) {
+        const debut = new Date(a.horodatage_debut);
+        const fin = new Date(a.horodatage_fin);
+        if (!isNaN(debut.getTime()) && !isNaN(fin.getTime())) {
+          dureeMinutes = Math.max(0, Math.round((fin - debut) / 60000)) + " min";
+        }
+      }
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${dateStr}</td>
+        <td><strong class="texte-anomalie-blanc">${a.type_anomalie || "Non spécifié"}</strong></td>
+        <td>${a.transporteur || "-"}</td>
+        <td>${a.client || "-"}</td>
+        <td><span class="kpi-badge badge-duree-visible">${dureeMinutes}</span></td>
+      `;
+      corpsTableau.appendChild(tr);
+    });
+  }
+
+  /**
+   * Initialise les dates sur les 6 derniers jours
+   */
+  function initialiserDatesSeptDerniersJours() {
+    const aujourdHuiObj = new Date();
+    const ilYASeptJoursObj = new Date();
+    ilYASeptJoursObj.setDate(aujourdHuiObj.getDate() - 6);
+
+    const formatFn = typeof formaterDateLocal === "function" 
+      ? formaterDateLocal 
+      : (d) => d.toISOString().split('T')[0];
+
+    const dateFinStr = formatFn(aujourdHuiObj);
+    const dateDebutStr = formatFn(ilYASeptJoursObj);
+
+    const elDebut = document.getElementById("dateDebutKpi");
+    const elFin = document.getElementById("dateFinKpi");
+
+    if (elDebut) elDebut.value = dateDebutStr;
+    if (elFin) elFin.value = dateFinStr;
+  }
+
+  /**
+   * Attache l'autocomplétion sur les datalists kpi
+   */
+  function initialiserAutocompletionKpi() {
+    if (typeof attacherAutocompletion === "function" && typeof cacheParams !== "undefined") {
+      attacherAutocompletion("filtre-kpi-t", "filtre-kpi-transporteur", cacheParams.transporteurs || []);
+      attacherAutocompletion("filtre-kpi-c", "filtre-kpi-client", cacheParams.clients || []);
+    }
+  }
+
+  /**
+   * Réinitialise les filtres
+   */
+  function reinitialiserIndicateurs() {
+    initialiserDatesSeptDerniersJours();
+    if (document.getElementById("filtre-kpi-t")) document.getElementById("filtre-kpi-t").value = "";
+    if (document.getElementById("filtre-kpi-c")) document.getElementById("filtre-kpi-c").value = "";
+    chargerDonneesIndicateursServeur();
+  }
+
+  // ÉCOUTEURS D'ÉVÉNEMENTS
+  document.addEventListener("DOMContentLoaded", () => {
+    initialiserDatesSeptDerniersJours();
+
+    const elT = document.getElementById("filtre-kpi-t");
+    const elC = document.getElementById("filtre-kpi-c");
+
+    if (elT) {
+      elT.addEventListener("input", appliquerFiltresInstantanesKpi);
+      elT.addEventListener("change", appliquerFiltresInstantanesKpi);
+    }
+    if (elC) {
+      elC.addEventListener("input", appliquerFiltresInstantanesKpi);
+      elC.addEventListener("change", appliquerFiltresInstantanesKpi);
+    }
+
+    initialiserAutocompletionKpi();
+    chargerDonneesIndicateursServeur();
+  });
+</script>

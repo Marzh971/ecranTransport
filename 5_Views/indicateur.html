@@ -1,0 +1,123 @@
+<div class="conteneur-indicateurs">
+
+  <!-- BARRE DE FILTRES KPI ET ACTIONS -->
+  <div class="ligne-filtre">
+    <div class="groupe-filtre">
+      <div class="filtre">
+        <label for="dateDebutKpi">Du :</label>
+        <input type="date" id="dateDebutKpi" onchange="chargerDonneesIndicateursServeur()" />
+      </div>
+      <div class="separateur-filtre"></div>
+      <div class="filtre">
+        <label for="dateFinKpi">Au :</label>
+        <input type="date" id="dateFinKpi" onchange="chargerDonneesIndicateursServeur()" />
+      </div>
+    </div>
+
+    <div class="groupe-filtre">
+      <div class="filtre">
+        <label for="filtre-kpi-t">Transporteur :</label>
+        <input type="text" id="filtre-kpi-t" list="filtre-kpi-transporteur" placeholder="Tous les transporteurs" />
+        <datalist id="filtre-kpi-transporteur"></datalist>
+      </div>
+      <div class="separateur-filtre"></div>
+      <div class="filtre">
+        <label for="filtre-kpi-c">Client :</label>
+        <input type="text" id="filtre-kpi-c" list="filtre-kpi-client" placeholder="Tous les clients" />
+        <datalist id="filtre-kpi-client"></datalist>
+      </div>
+    </div>
+
+    <div class="filtre-right">
+      <button type="button" class="btn-filtrer-date" onclick="reinitialiserIndicateurs()" title="Réinitialiser les filtres sur 7 jours">
+        <i class="fa-solid fa-rotate-right"></i> &nbsp Réinitialiser
+      </button>
+    </div>
+  </div>
+
+  <!-- LIGNE 1 : TABLEAUX CÔTE À CÔTE -->
+  <div class="kpi-grid-tableaux" style="margin-bottom: 20px;">
+    
+    <!-- TABLEAU 1 : Camions par jour -->
+    <div class="kpi-card flex-camions">
+      <div class="kpi-card-header">
+        <div class="kpi-header-title-container">
+          <h3 class="kpi-title-pink">Camions par jour</h3>
+        </div>
+        <span id="badge-total-camions" class="kpi-badge badge-blue">0 camion</span>
+      </div>
+      <div class="table-responsive-kpi">
+        <table class="table-kpi">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Jour</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="corps-tableau-kpi-jours">
+            <!-- Rempli en JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TABLEAU 2 : Détail des Anomalies -->
+    <div class="kpi-card flex-anomalies">
+      <div class="kpi-card-header">
+        <div class="kpi-header-title-container">
+          <h3 class="kpi-title-pink">Détail des Anomalies</h3>
+        </div>
+        <span id="badge-total-detail-anomalies" class="kpi-badge badge-pink">0 anomalie</span>
+      </div>
+      <div class="table-responsive-kpi">
+        <table class="table-kpi">
+          <thead>
+            <tr>
+              <th>Date / Heure</th>
+              <th>Type d'anomalie</th>
+              <th>Transporteur</th>
+              <th>Client</th>
+              <th>Durée</th>
+            </tr>
+          </thead>
+          <tbody id="corps-tableau-kpi-anomalies">
+            <!-- Rempli en JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- LIGNE 2 : GRAPHIQUES -->
+  <div class="kpi-grid-charts">
+    
+    <!-- GRAPH 1 : Camembert Répartition des Anomalies -->
+    <div class="kpi-card flex-chart">
+      <div class="kpi-card-header">
+        <div class="kpi-header-title-container">
+          <h3 class="kpi-title-pink">Répartition des Anomalies</h3>
+        </div>
+        <span id="badge-total-anomalies" class="kpi-badge badge-blue">0 anomalie</span>
+      </div>
+      <div class="kpi-chart-wrapper">
+        <canvas id="chartPieAnomalies"></canvas>
+      </div>
+    </div>
+
+    <!-- GRAPH 2 : Barres Durées Moyennes et Cumulées -->
+    <div class="kpi-card flex-chart">
+      <div class="kpi-card-header">
+        <div class="kpi-header-title-container">
+          <h3 class="kpi-title-pink">Durées Moyennes et Cumulées (min)</h3>
+        </div>
+      </div>
+      <div class="kpi-chart-wrapper">
+        <canvas id="chartBarDurees"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+</div>

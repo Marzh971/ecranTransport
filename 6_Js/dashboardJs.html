@@ -1,0 +1,1935 @@
+<script>
+  // --- VARIABLES D'ÉTAT (CACHE CLIENT) ---
+  let cacheEnregistrements = []; // Contient tous les enregistrements
+  let cacheAnomalies = [] ;
+  let cacheQuais = [];            // Contient la liste brute des quais opérationnels
+  let cacheParams = {};           // Contient les statuts, anomalies, clients, etc.
+  let cacheTraductions = [];
+  let cacheTypeTemp = [];
+  
+// --- VARIABLES DE PAGINATION ---
+  let pageActuelle = 1;
+  const TAILLE_PAGE = 200;
+  let donneesFiltreesEnCours = [];
+
+  const STATUTS_MAP = new Map([
+  ["En parking", "badge-parking"],
+  ["À Quai", "badge-quai"],
+  ["En Chargement", "badge-chargement"],
+  ["Anomalie", "badge-anomalie"],
+  ["Attente administrative", "badge-attente-admin"],
+  ["Prêt", "badge-pret"],
+  ["Départ", "badge-depart"],
+  ["Décrochée", "badge-decrochee"]
+]);
+  
+  // Déclarations des éléments HTML
+  const formElement = document.getElementById("formulaire-details");
+  const tbody = document.getElementById('corps-tableau');
+  const conteneur = document.querySelector('.conteneur-dashboard');
+  const instructionSelect = document.getElementById("instruction");
+  const traductionSelect = document.getElementById("traduction");
+  const inputTempsQuai = document.getElementById("input-temps-quai");
+  const inputTempsAttente = document.getElementById("input-temps-attente");
+  const zoneAnomalie = document.getElementById("zone-anomalies");
+  
+  // Variable globale
+  let ligneActive = null;
+  let formulaireModifie = false;
+  // Variable globale pour conserver le document à supprimer
+  let documentASupprimer = null;
+
+
+// FONCTION POUR CHARGER LES DONNÉES DU TABLEAU
+  function chargerEnregistrements(dateDebut, dateFin) {
+    const elDebut = document.getElementById("dateDebut");
+    const elFin = document.getElementById("dateFin");
+    const dateAujourdhui = formaterDateLocal(new Date());
+
+    const dDebut = dateDebut || (elDebut && elDebut.value ? elDebut.value : dateAujourdhui);
+    const dFin = dateFin || (elFin && elFin.value ? elFin.value : dateAujourdhui);
+
+    // Lancement explicite du spinner
+    if (typeof afficherIndicateurChargement === "function") {
+      afficherIndicateurChargement(true);
+    }
+    formulaireModifie = false;
+
+    google.script.run
+      .withSuccessHandler(function(donnees) {
+        if (typeof afficherIndicateurChargement === "function") {
+          afficherIndicateurChargement(false);
+        }
+        if (donnees && donnees.success === false) {
+          afficherToast(donnees.message || "Échec de récupération des données.", "error");
+          return;
+        }
+
+        cacheEnregistrements = donnees.enregistrements || [];
+        cacheAnomalies = donnees.anomalies || [];
+        remplirTable(cacheEnregistrements);
+      })
+      .withFailureHandler(function(erreur) {
+        if (typeof afficherIndicateurChargement === "function") {
+          afficherIndicateurChargement(false);
+        }
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+      .apiGetAllEnregistrementsByDate(dDebut, dFin);
+  }
+
+  function chargerTraductions(){
+
+    google.script.run
+      .withSuccessHandler(function(donnees) {
+        cacheTraductions = donnees || []; // Stockage en cache
+        remplirSelectInstructions();
+        remplirSelectTraductions(cacheTraductions);
+      })
+      .withFailureHandler(function(erreur) {
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+    .apiGetTraductions();
+  } 
+
+  // Alias conservé pour les chargements initiaux
+  function remplirTable(donnees) {
+    cacheEnregistrements = donnees || [];
+    appliquerFiltre();
+  }
+
+
+  function remplirLignesTableau(donnees) {
+    donnees = trieEnregistrements(donnees);
+    tbody.innerHTML = '';
+    
+    if (!donnees || donnees.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="11">
+            Aucun enregistrement trouvé dans la base de données.
+          </td>
+        </tr>`;
+    } else {
+      // Construction dynamique des lignes du tableau
+      donnees.forEach(enregistrement => {
+        const tr = document.createElement('tr');
+        const tempEstCoche = enregistrement.feuille_temperature_verifiee ? 'checked' : '';
+        tr.classList.add("trEnregistrement");
+        tr.dataset.id = enregistrement.id;
+
+        // Ajout de la classe si la section est Haute
+        if (determinerSection(enregistrement) === "Haute") {
+          tr.classList.add("enregistrement-valide");
+        }
+        // : Ajout de la classe si un commentaire existe ---
+        if (enregistrement.commentaire && String(enregistrement.commentaire).trim() !== "") {
+          tr.classList.add("commentaire-present");
+        }
+
+        // --- Génération des icônes de prestations ---
+        let iconesPrestations = '';
+        if (enregistrement.pesee_completee) {
+          iconesPrestations += `<i class="fa-solid fa-scale-balanced icone-prestation" title="Pesée effectuée"></i> `;
+        }
+        if (enregistrement.lavage_paye) {
+          iconesPrestations += `<i class="fa-solid fa-droplet icone-prestation" title="Lavage effectué"></i> `;
+        }
+        if (enregistrement.feuille_temperature_generee) {
+          iconesPrestations += `<span class="icone-prestation" title="Feuille de température générée">°C</span> `;
+        }
+
+        tr.innerHTML = `
+          <td>${formaterDateFR(enregistrement.date)}</td>
+          <td>${echapperHtml(enregistrement.transporteur)}</td>
+          <td>${echapperHtml(enregistrement.immatriculation?.toUpperCase() || '')}</td>
+          <td>${echapperHtml(enregistrement.client)}</td>
+          <td>${echapperHtml(enregistrement.quai || '')}</td>
+          <td>${formaterBadgeStatut(enregistrement.statut) || ''}</td>
+          <td class='colonne-heure'>${echapperHtml(enregistrement.heure_arrivee || '')}</td>
+          <td class='colonne-heure'>${echapperHtml(enregistrement.heure_pret_ch || '')}</td>
+          <td class='colonne-heure'>${echapperHtml(enregistrement.heure_depart || '')}</td>
+          <td class="colonne-prestations">${iconesPrestations}</td>
+          <td><input type="checkbox" class="checkbox-temperature" ${tempEstCoche} ></td>
+        `;
+        // Écouteur de clic sur la ligne entière
+        tr.addEventListener('click', () => selectionneLigne(tr, enregistrement));
+
+      // Empêcher le clic sur la checkbox d'ouvrir le formulaire
+        const checkbox = tr.querySelector('.checkbox-temperature');
+        if (checkbox) {
+          checkbox.addEventListener('click', (e) => {
+            e.stopPropagation(); // Bloque la remontée du clic vers le <tr>
+          });
+
+          checkbox.addEventListener('change', (e) => {
+            const nouvelEtat = e.target.checked;
+            // Mise à jour dans le cache local
+            enregistrement.feuille_temperature_verifiee = nouvelEtat;
+            // Appel serveur
+            changerStatutFeuilleTemperature(enregistrement.id, nouvelEtat, checkbox);
+          });
+
+        }
+
+        tbody.appendChild(tr);
+      });
+    }
+    afficherIndicateurChargement(false);
+  }
+
+  // appel api pour modifier boléen de feuille température
+  function changerStatutFeuilleTemperature(idEnregistrement, valeurCheckbox, elementCheckbox){
+    const index = cacheEnregistrements.findIndex(e => String(e.id) === String(idEnregistrement));
+    if(index != -1){
+      const ancienneLigne = { ...cacheEnregistrements[index] };
+      cacheEnregistrements[index].feuille_temperature_verifiee = valeurCheckbox;
+      afficherToast("Enregistrement en cours...", "waiting");
+
+      google.script.run
+        .withSuccessHandler(function(reponse) {
+          if (reponse && reponse.success) {
+            afficherToast(reponse?.message || "Enregistrement modifié avec succès !", "success");
+          } else {
+            annulerModification(idEnregistrement , ancienneLigne);
+            annulerModifCheckbox(idEnregistrement, valeurCheckbox);
+            afficherToast(reponse?.message || "Une erreur est survenue.", "error");
+          }
+        })
+        .withFailureHandler(function(erreur) {
+          annulerModification(idEnregistrement , ancienneLigne );
+          annulerModifCheckbox(idEnregistrement, valeurCheckbox);
+          afficherToast(erreur.message || "Une erreur est survenue.", "error");
+        })
+      .apiModifierEtatFeuilleTemperature(idEnregistrement,valeurCheckbox);
+    }
+  }
+
+  // FONCTION POUR CHARGER LES DONNÉES DES PARAMS
+  function chargerParams() {
+    google.script.run
+      .withSuccessHandler(function(donnees) {
+
+        if (donnees && donnees.success === false) {
+          afficherIndicateurChargement(false);
+          afficherToast(donnees.message, "error");
+          return;
+        }
+
+        cacheParams = donnees || {}; // Stockage en cache
+        remplirSelect("statut", cacheParams.statuts);
+        remplirSelect("type_anomalie", cacheParams.anomalies);
+        attacherAutocompletion("transporteur", "liste-transporteur", cacheParams.transporteurs);
+        attacherAutocompletion("client", "liste-client", cacheParams.clients);
+        attacherAutocompletion("filtre-t", "filtre-transporteur", cacheParams.transporteurs);
+        attacherAutocompletion("filtre-c", "filtre-client", cacheParams.clients);
+        attacherAutocompletion("filtre-kpi-t", "filtre-kpi-transporteur", cacheParams.transporteurs);
+        attacherAutocompletion("filtre-kpi-c", "filtre-kpi-client", cacheParams.clients);
+      })
+      .withFailureHandler(function(erreur) {
+        afficherIndicateurChargement(false);
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+    .apiGetAllParams();
+  }
+
+    // FONCTION POUR CHARGER LES TYPES DE FEUILLES TEMPERATURES
+  function chargerTypeTemp() {
+    google.script.run
+      .withSuccessHandler(function(reponse) {
+        if(reponse && reponse.success){
+          cacheTypeTemp = reponse.liste || []; // Stockage en cache
+          remplirSelectTypeTemp(cacheTypeTemp);
+        }
+      })
+      .withFailureHandler(function(erreur) {
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+    .apiGetAllTypeFeuilleTemp();
+  }
+
+  function remplirSelect(idSelect, colonne) {
+    const select = document.getElementById(idSelect);
+
+    if (select && select instanceof HTMLSelectElement && Array.isArray(colonne)) {
+      select.options.length = 1; // On garde l'option 0 (-- Sélectionner --)
+      
+      colonne.forEach(ligne => {
+        const option = document.createElement("option");
+        option.value = ligne;
+        option.text = ligne;
+        select.appendChild(option);
+      });
+    }
+  }
+
+
+  function remplirSelectTypeTemp(donnees, docsDejaGeneres = []) {
+    const select = document.getElementById("feuille-temperature");
+
+    if (select && select instanceof HTMLSelectElement) {
+      select.options.length = 1; // On conserve l'option 0 ("-- Sélectionner --")
+      
+      // Extraction des types de documents déjà générés pour cet enregistrement
+      const typesExistants = docsDejaGeneres.map(d => (d.type || "").toLowerCase().trim());
+
+      donnees.forEach(ligne => {
+        const typeNom = (ligne.type || "").toLowerCase().trim();
+
+        // On n'ajoute l'option que si son type n'a pas encore été généré
+        if (!typesExistants.includes(typeNom)) {
+          const option = document.createElement("option");
+          option.value = ligne.idGabarit;
+          option.text = ligne.type;
+          select.appendChild(option);
+        }
+      });
+    }
+  }
+
+  
+
+  function remplirSelectTraductions(donnees) {
+    traductionSelect.options.length = 1; // On garde l'option 0 (-- Sélectionner --)
+    const entetes = Object.keys(donnees[0]);
+    let langues = entetes.filter(langue => langue != "idTexte" && langue != "Français");
+    langues.sort();
+
+    langues.forEach(ligne => {
+      const option = document.createElement("option");
+      option.value = ligne;
+      option.text = ligne;
+      traductionSelect.appendChild(option);
+    });
+  }
+
+  function remplirSelectInstructions() {
+    if (!cacheTraductions || cacheTraductions.length === 0) return;
+
+    instructionSelect.options.length = 1; // On garde l'option 0 (-- Sélectionner --)
+    const entetes = Object.keys(cacheTraductions[0]);
+    let listeIds = cacheTraductions.map(item => item.idTexte);
+    listeIds = listeIds.filter(ligne => ligne != "idTexte");
+    remplirSelect("instruction", listeIds);
+    // On nettoie d'abord l'ancien écouteur (s'il existait)
+    instructionSelect.removeEventListener("change", afficherPrevisualisationFR);
+    // On attache le nouvel écouteur
+    instructionSelect.addEventListener("change", afficherPrevisualisationFR);
+  }
+
+
+  function afficherPrevisualisationFR(){
+    const zoneFr = document.getElementById("texte_fr");
+    const variable = document.getElementById("variable_traduction");
+    const labelVariable = document.querySelector("label[for='variable_traduction']");
+
+    variable.value = "";
+    let text_previsu = cacheTraductions.find(item =>  item.idTexte == instructionSelect.value);
+    zoneFr.innerText = text_previsu["Français"];
+
+    if(text_previsu["Français"].includes("[...]")){
+      variable.classList.remove("hidden"); 
+      labelVariable.classList.remove("hidden");
+    }else{
+      variable.classList.add("hidden"); 
+      labelVariable.classList.add("hidden");
+    }
+  }
+
+function modifierPrevisualisationFR() {
+  const zoneFr = document.getElementById("texte_fr");
+  const variable = document.getElementById("variable_traduction");
+  
+  const text_previsu = cacheTraductions.find(item => item.idTexte == instructionSelect.value);
+  if (text_previsu && text_previsu["Français"]) {
+    // Si l'input est vide, on réaffiche le texte d'origine ou la valeur
+    const texteOriginal = text_previsu["Français"];
+    const valeurRemplacement = variable.value;
+
+    // Remplacement dynamique
+    zoneFr.innerText = texteOriginal.replace(/\[\.\.\.\]/g, valeurRemplacement);
+  }
+}
+
+function modifierPrevisualisationPlan() {
+  const apercuText = document.getElementById("apercu-placeholder");
+  const zoneSVG = document.getElementById("zone-svg-apercu");
+  const planSelect = document.getElementById("plan-select");
+  if (!planSelect || !apercuText || !zoneSVG) return;
+
+  const typePlanSelectionne = planSelect.value;
+
+  apercuText.classList.add("hidden");
+  zoneSVG.classList.remove("hidden");
+  
+
+  // On applique directement la logique de masquage/affichage sur le SVG existant
+  modifierPlan(typePlanSelectionne);
+}
+
+  function remplirDataList(idList, colonne) {
+    const list = document.getElementById(idList);
+
+    if (list && list instanceof HTMLDataListElement && Array.isArray(colonne)) {
+      list.innerHTML = "";
+      
+      colonne.forEach(ligne => {
+        const option = document.createElement("option");
+        option.value = ligne;
+        list.appendChild(option);
+      });
+    }
+  }
+
+  // Fonction générique pour autocomplétion fluide
+  function attacherAutocompletion(idInput, idDatalist, tableauSource) {
+    const input = document.getElementById(idInput);
+    if (!input || !Array.isArray(tableauSource)) return;
+
+    input.addEventListener('input', function(e) {
+      const saisie = e.target.value.toLowerCase().trim();
+
+      if (saisie.length < 2) {
+        remplirDataList(idDatalist, []);
+        return;
+      }
+
+      const resultatsFiltres = tableauSource
+        .filter(item => item && item.toLowerCase().includes(saisie))
+        .slice(0, 30);
+
+      remplirDataList(idDatalist, resultatsFiltres);
+    });
+  }
+
+  // FONCTION POUR CHARGER LES DONNÉES DES QUAIS
+  function chargerQuais() {
+    google.script.run
+      .withSuccessHandler(function(donnees) {
+        cacheQuais = donnees || [];
+        remplirSelectQuai();
+        afficherBoutonsQuais();
+      })
+      .withFailureHandler(function(erreur) {
+        afficherIndicateurChargement(false);
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+    .apiGetAllQuais();
+  }
+
+
+  function afficherBoutonsQuais(){
+    if(!cacheQuais) return;
+
+    const quaiModalContenu = document.getElementById("modal-quai");
+    quaiModalContenu.innerHTML = "";
+
+    cacheQuais.forEach(quai => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = quai.idDock;
+      if( quai.stateDock === "Hors Service"){
+        btn.classList.add("btn1");
+        btn.textContent = "Quai "+quai.idDock+" (Hors service)";
+      } else{
+        btn.textContent = "Quai "+quai.idDock;
+      }
+    
+      // Événement au clic sur le quai
+      btn.onclick = () => modifierQuai(quai.idDock);
+
+      quaiModalContenu.appendChild(btn);
+    });
+  }
+
+  function modifierQuai(id){
+    afficherIndicateurChargement(true);
+    google.script.run
+      .withSuccessHandler(function(reponse) {
+        afficherIndicateurChargement(false);
+        if (reponse && reponse.success) {
+          document.getElementById(id).classList.toggle("btn1");
+          if(reponse.etat == "Hors Service"){
+            document.getElementById(id).innerText = "Quai " +id+' (Hors service)';
+          }else{
+            document.getElementById(id).innerText = "Quai " +id;
+          }
+
+          const quaiEnCache = cacheQuais.find(q => String(q.idDock) === String(id));
+          if (quaiEnCache) {
+            // Modification du quai en cache par référence.
+            quaiEnCache.stateDock = reponse.etat;
+            remplirSelectQuai(); // Rafraîchit le <select> 
+          }
+
+        } else {
+          console.error("Échec serveur :", reponse ? reponse.message : "Aucune réponse");
+        }
+      })
+      .withFailureHandler(function(erreur) {
+        afficherIndicateurChargement(false);
+        afficherToast("Erreur dans la modification de quai", "error");
+      })
+    .apiModifierEtatQuai(id);
+  }
+
+
+  function remplirSelectQuai(quaiActuel = null) {
+    const select = document.getElementById("quai");
+    if (!select) return;
+
+    select.options.length = 1;
+
+    let quaisAAfficher = cacheQuais.filter(q => q.stateDock === "Opérationnel");
+
+    if (quaiActuel) {
+      const quaiHistoriqueExiste = quaisAAfficher.some(q => String(q.idDock) === String(quaiActuel));
+      if (!quaiHistoriqueExiste) {
+        quaisAAfficher.push({ idDock: quaiActuel, horsService: true });
+      }
+    }
+
+    quaisAAfficher.forEach(ligne => {
+      const option = document.createElement("option");
+      option.value = ligne.idDock;
+      option.text = ligne.idDock;
+      select.appendChild(option);
+    });
+  }
+
+  // FONCTION LORS DU CLIC SUR UNE LIGNE
+  async function selectionneLigne(ligne, donnees) {
+    const champsHeures = document.querySelectorAll(".colonne-heure");
+
+    // On attend la décision de l'utilisateur (asynchrone)
+    const confirmation = await confirmerAbandonModifications();
+    if (!confirmation) return;
+
+    zoneAnomalie.innerHTML = "";
+
+    if (ligne === ligneActive) {
+
+      ligne.classList.remove('ligne-selectionnee');
+      ligneActive = null;
+      if (formElement) formElement.classList.add('hidden');
+      if (conteneur) conteneur.classList.remove('form-ouvert');
+      
+      champsHeures.forEach(champ => {
+        champ.classList.remove('hidden');
+      } );
+      
+      return;
+    };
+
+    if (ligneActive) {
+      ligneActive.classList.remove('ligne-selectionnee');
+
+    }
+
+    champsHeures.forEach(champ => {
+      champ.classList.add('hidden');
+    } );
+
+    ligne.classList.add('ligne-selectionnee');
+    ligneActive = ligne;
+
+    remplirSelectQuai(donnees.quai);
+    remplirFormulaireDetail(donnees);
+    if (formElement) formElement.classList.remove('hidden');
+    if (conteneur) conteneur.classList.add('form-ouvert');
+  }
+
+  function remplirFormulaireDetail(data) {
+    if (!data) return;
+
+    document.getElementById("idForm").value = data.id || '';
+    document.getElementById('dateForm').value = data.date ? String(data.date).split('T')[0] : '';;
+    document.getElementById('statut').value = data.statut || '';
+    document.getElementById('transporteur').value = data.transporteur || '';
+    document.getElementById('immatriculation').value = data.immatriculation || '';
+    document.getElementById('client').value = data.client || '';
+    document.getElementById('quai').value = data.quai || '';
+    document.getElementById("feuille-temperature").value = '';
+    document.getElementById('heure-arrive').value = data.heure_arrivee || data.heure_arrive || '';
+    document.getElementById('heure-chg').value = data.heure_pret_ch || data.heure_chg || '';
+    document.getElementById('heure-depart').value = data.heure_depart || '';
+
+  // Si un ID existe, on affiche les sections annexes
+    afficherSectionsAnnexes(Boolean(data.id));
+
+    verrouillerZoneLavage(Boolean(data.lavage_paye));
+    obtenirNumeroSemaine();
+    //partie anomalie
+    document.getElementById('type_anomalie').value = '';
+    afficherAnomalies(data.id);
+
+    ajouterLignesFeuilleTemp(data.feuille_temperature_url);
+
+    document.getElementById('commentaire').value = data.commentaire || '';
+
+    document.getElementById('feuille_temperature_generee').checked = Boolean(data.feuille_temperature_generee);
+    document.getElementById('pesee_completee').checked = Boolean(data.pesee_completee);
+    document.getElementById('lavage_paye').checked = Boolean(data.lavage_paye);
+    document.getElementById('arrimage_paye').checked = Boolean(data.arrimage_paye);
+
+    // Extraire la liste des documents existants (s'ils existent)
+    let docsExistants = [];
+    if (data.feuille_temperature_url) {
+      try {
+        docsExistants = typeof data.feuille_temperature_url === "string" 
+          ? JSON.parse(data.feuille_temperature_url) 
+          : data.feuille_temperature_url;
+      } catch (e) {
+        docsExistants = [];
+      }
+    }
+    // Filtrage dynamique du sélecteur
+    remplirSelectTypeTemp(cacheTypeTemp, docsExistants);
+
+    setTimeout(() => {
+      formulaireModifie = false;
+    }, 0);
+  }
+
+ async function changerClassFormulaire() {
+
+    // On attend la décision de l'utilisateur (asynchrone)
+    const confirmation = await confirmerAbandonModifications();
+    if (!confirmation) return;
+
+    formulaireModifie = false;
+    const champsHeures = document.querySelectorAll(".colonne-heure");
+
+    if(champsHeures){
+      champsHeures.forEach(champ => {
+        champ.classList.remove('hidden');
+      });
+    }
+
+    if (formElement) {
+      formElement.classList.toggle('hidden');
+      
+    }
+    if (conteneur) {
+      conteneur.classList.remove('form-ouvert');
+    }
+    if (ligneActive) {
+      ligneActive.classList.remove('ligne-selectionnee');
+      ligneActive = null;
+    }
+  }
+
+  async function nouveauFormulaire() {
+
+    // On attend la décision de l'utilisateur (asynchrone)
+    const confirmation = await confirmerAbandonModifications();
+    if (!confirmation) return;
+    //vide zone anomalie
+    zoneAnomalie.innerHTML = "";
+    const champsHeures = document.querySelectorAll(".colonne-heure");
+    if (formElement) {
+      const formInterne = formElement.querySelector("form");
+      if (formInterne) {
+        formInterne.reset();
+      }
+
+    verrouillerZoneLavage(false);
+    // vide la zone feuille température
+    const zoneTemperature = document.getElementById("zone-temperature");
+    if (zoneTemperature) zoneTemperature.innerHTML = "";
+      
+      document.getElementById('idForm').value = '';
+
+    // Masque les sections annexes car c'est un nouvel enregistrement
+    afficherSectionsAnnexes(false);
+      
+      document.getElementById('dateForm').value = formaterDateLocal(new Date());
+      
+      remplirSelectQuai();
+      remplirSelectTypeTemp(cacheTypeTemp, []);
+      
+      formElement.classList.remove('hidden');
+      if (conteneur) conteneur.classList.add('form-ouvert');
+    }
+    champsHeures.forEach(champ => {
+      champ.classList.add('hidden');
+    } );
+
+    if (ligneActive) {
+      ligneActive.classList.remove('ligne-selectionnee');
+      ligneActive = null;
+    }
+
+    formulaireModifie = false;
+  }
+
+
+
+
+  // FONCTION POUR SUPPRIMER UN ENREGISTREMENT
+  function supprimerEnregistrement() {
+    const id = document.getElementById('idForm').value || null;
+
+    if (!id) {
+      afficherToast("Aucun enregistrement sélectionné.", "error");
+      return;
+    }
+    // Sauvegarde en mémoire pour un éventuel rollback
+    const index = cacheEnregistrements.findIndex(e => String(e.id) === String(id));
+    if (index === -1) return;
+    const enregistrementSauve = { ...cacheEnregistrements[index] };
+
+    cacheEnregistrements.splice(index, 1);
+    appliquerFiltre();
+    changerClassFormulaire();
+    modifierModal('suppressionModal')
+    afficherToast("Suppression en cours...", "waiting");
+
+    google.script.run
+      .withSuccessHandler(function(reponse) {
+        if (reponse && reponse.success) {
+          afficherToast(reponse?.message || "Enregistrement supprimé avec succès !", "success");
+        } else {
+          cacheEnregistrements.push(enregistrementSauve);
+          appliquerFiltre();
+          afficherToast(reponse?.message || "Une erreur est survenue.", "error");
+        }
+      })
+      .withFailureHandler(function(erreur) {
+        cacheEnregistrements.push(enregistrementSauve);
+        appliquerFiltre();
+        afficherToast("Erreur système : " + (erreur.message || erreur), "error");
+      })
+    .apiSupprimerEnregistrement(id);
+  }
+
+  // Fonction pour vérif champs formualaire
+  function verifFormulaire(enregistrement , controleComplet = true){
+
+    if (!enregistrement.date || !enregistrement.transporteur || !enregistrement.client) {
+      afficherToast("Veuillez remplir les champs obligatoires (Date, Transporteur, Client).", "error");
+      return false;
+    }
+
+    // Si on ne demande que le contrôle de surface (ex: pour Lavage ou Arrimage)
+    if (!controleComplet) return true;
+
+    const heure_arrivee_valide = enregistrement?.heure_arrivee ;
+    const heure_pret_ch_valide = enregistrement?.heure_pret_ch ;
+    const heure_depart_valide = enregistrement?.heure_depart;
+
+    if ( heure_arrivee_valide && heure_pret_ch_valide ){
+      if (heure_pret_ch_valide < heure_arrivee_valide) {
+        afficherToast("L'heure d'arrivée doit être inférieure à l'heure prête à charger.", "error");
+        return false;
+      }
+    }
+    if ( heure_arrivee_valide && heure_depart_valide ){
+      if (heure_depart_valide < heure_arrivee_valide){
+        afficherToast("L'heure de départ doit être supérieure à l'heure d'arrivée.", "error");
+        return false;
+      }
+    }
+
+    if ( heure_pret_ch_valide && heure_depart_valide ){
+      if (heure_depart_valide < heure_pret_ch_valide){
+        afficherToast("L'heure de départ doit être supérieure à l'heure prête à charger.", "error");
+        return false;
+      } 
+    }
+
+  const cartes = document.querySelectorAll("#zone-anomalies .form-ligne-anomalies");
+
+  for (const carte of cartes) {
+    const inputsDate = carte.querySelectorAll('input[type="datetime-local"]');
+    const dDebut = inputsDate[0]?.value;
+    const dFin = inputsDate[1]?.value;
+
+    if (!dDebut) {
+      afficherToast("L'horodatage de début est obligatoire pour chaque anomalie.", "error");
+      return false;
+    }
+
+    if (dDebut && dFin && dFin <= dDebut) {
+      afficherToast("L'horodatage de fin d'anomalie doit être supérieur au début.", "error");
+      return false;
+    }
+
+    if (heure_depart_valide && !dFin) {
+      afficherToast("Clôturez toutes les anomalies (date de fin) avant d'indiquer une heure de départ.", "error");
+      return false;
+    }
+  }
+
+    return true;
+  }
+
+  // Fonction pour récupéré l'enregistrement du formulaire
+  function lireChampsFormulaire() {
+    const id = document.getElementById('idForm').value || null;
+    
+    // Récupère l'ancien enregistrement dans le cache pour ne pas perdre la chaîne JSON des URLs
+    const ancienEnregistrement = cacheEnregistrements.find(e => String(e.id) === String(id));
+    const ancienneUrlTemp = ancienEnregistrement ? ancienEnregistrement.feuille_temperature_url : null;
+
+    return {
+      id: id,
+      date: document.getElementById('dateForm').value,
+      statut: document.getElementById('statut').value,
+      transporteur: document.getElementById('transporteur').value,
+      immatriculation: document.getElementById('immatriculation').value,
+      client: document.getElementById('client').value,
+      quai: document.getElementById('quai').value,
+      heure_arrivee: document.getElementById('heure-arrive').value,
+      heure_pret_ch: document.getElementById('heure-chg').value,
+      heure_depart: document.getElementById('heure-depart').value,
+      commentaire: document.getElementById('commentaire').value,
+      feuille_temperature_url: ancienneUrlTemp,
+      feuille_temperature_generee: document.getElementById('feuille_temperature_generee').checked,
+      pesee_completee: document.getElementById('pesee_completee').checked,
+      lavage_paye: document.getElementById('lavage_paye').checked,
+      arrimage_paye: document.getElementById('arrimage_paye').checked
+    };
+  }
+
+  // Fonction pour récupéré les anomalies du formulaire
+  function lireAnomaliesFormulaire(idEnregistrement, transporteur, client) {
+    const cartes = document.querySelectorAll("#zone-anomalies .form-ligne-anomalies");
+    return Array.from(cartes).map(carte => {
+      const inputsDate = carte.querySelectorAll('input[type="datetime-local"]');
+      return {
+        id: carte.dataset.id || null, 
+        idEnregistrement: idEnregistrement || null,
+        type_anomalie: carte.querySelector("p")?.innerText.trim() || "",
+        horodatage_debut: inputsDate[0]?.value || null,
+        horodatage_fin: inputsDate[1]?.value || null,
+        transporteur: transporteur || "",
+        client: client || ""
+      };
+    });
+  }
+
+
+  // FONCTION POUR CRÉER / MODIFIER UN ENREGISTREMENT
+  function envoyerEnregistrement() {
+
+    // Récupération d el'enregistrement
+    const enregistrement = lireChampsFormulaire();
+
+    // Contrôle de surface
+    const estValide = verifFormulaire(enregistrement);
+    if(!estValide){
+      return ;
+    }
+    formulaireModifie = false;
+  // Récupération des anomalies
+    const anomalies = lireAnomaliesFormulaire(enregistrement.id, enregistrement.transporteur, enregistrement.client);
+
+    // CRÉATION (pas d'ID)
+    if (!enregistrement.id) {
+
+      const idTemp = "temp_" + Date.now();
+      const nouvelEnregistrement = { ...enregistrement, id: idTemp };
+      cacheEnregistrements.push(nouvelEnregistrement);
+      anomalies.forEach( a => {
+        const nouvelleAno = {...a , idEnregistrement : idTemp}
+        cacheAnomalies.push(nouvelleAno);
+      })
+      
+      appliquerFiltre();
+      changerClassFormulaire();
+      afficherToast("Enregistrement en cours...", "waiting");
+
+      google.script.run
+        .withSuccessHandler(function(reponse) {
+          
+          if (reponse && reponse.success) {
+
+            ajouterClient(reponse.nouveauClient);
+            ajouterTransporteur(reponse.nouveauTransporteur);
+
+            const index = cacheEnregistrements.findIndex(e => String(e.id) === String(nouvelEnregistrement.id));
+            if(index != -1){
+              cacheEnregistrements[index].id = reponse.idGenere ;
+              afficherToast(reponse?.message || "Enregistrement créé avec succès !", "success");
+            }
+
+            cacheAnomalies = cacheAnomalies.filter(a => String(a.idEnregistrement) !== String(idTemp));
+        
+            if (reponse.anomalies && Array.isArray(reponse.anomalies)) {
+              cacheAnomalies.push(...reponse.anomalies);
+            }
+            appliquerFiltre();
+
+          } else {
+            annulerAjoutTemp(nouvelEnregistrement.id);
+            afficherToast(reponse?.message || "Une erreur est survenue.", "error");
+          }
+        })
+        .withFailureHandler(function(erreur) {
+          annulerAjoutTemp(nouvelEnregistrement.id);
+          afficherToast("Erreur système : " + erreur.message, "error");
+        })
+      .apiCreerEnregistrement(enregistrement , anomalies);
+
+    // MODIFICATION (ID présent)
+    } else {
+      const index = cacheEnregistrements.findIndex(e => String(e.id) === String(enregistrement.id));
+      if(index != -1){
+        const ancienneLigne = { ...cacheEnregistrements[index] };
+        cacheEnregistrements[index] = { ...enregistrement };
+        // On sauvegarde aussi les anciennes anomalies liées
+        const anciennesAnomalies = cacheAnomalies.filter(a => String(a.idEnregistrement) === String(enregistrement.id));
+
+        // Mise à jour du cache d'anomalies
+        cacheAnomalies = cacheAnomalies.filter(a => String(a.idEnregistrement) !== String(enregistrement.id));
+        cacheAnomalies.push(...anomalies);
+
+        appliquerFiltre();
+        changerClassFormulaire();
+        afficherToast("Enregistrement en cours...", "waiting");
+        google.script.run
+        .withSuccessHandler(function(reponse) {
+          if (reponse && reponse.success) {
+
+            ajouterClient(reponse.nouveauClient);
+            ajouterTransporteur(reponse.nouveauTransporteur);
+
+            cacheAnomalies = cacheAnomalies.filter(a => String(a.idEnregistrement) !== String(enregistrement.id));
+            if (reponse.anomalies && Array.isArray(reponse.anomalies)) {
+              cacheAnomalies.push(...reponse.anomalies);
+            }
+
+            afficherToast(reponse?.message || "Enregistrement modifié avec succès !", "success");
+          } else {
+            annulerModification(enregistrement.id , ancienneLigne,anciennesAnomalies);
+            afficherToast(reponse?.message || "Une erreur est survenue.", "error");
+          }
+      }) 
+        .withFailureHandler(function(erreur) {
+          annulerModification(enregistrement.id , ancienneLigne , anciennesAnomalies);
+          afficherToast(erreur.message || "Une erreur est survenue.", "error");
+        }).apiModifierEnregistrement(enregistrement , anomalies);
+      }
+    }
+  }
+  
+  
+  //fonction pour annuler des modification avec id
+  function annulerModification(idCible, ancienneLigne ,anciennesAnomalies = []) {
+    //  On retrouve la position actuelle de la ligne grâce à son ID
+    const indexActuel = cacheEnregistrements.findIndex(e => String(e.id) === String(idCible));
+
+    // Si la ligne est toujours dans le tableau, on restaure ses anciennes valeurs
+    if (indexActuel !== -1) {
+      cacheEnregistrements[indexActuel] = ancienneLigne;
+
+      // Restauration des anciennes anomalies
+      cacheAnomalies = cacheAnomalies.filter(a => String(a.idEnregistrement) !== String(idCible));
+      cacheAnomalies.push(...anciennesAnomalies);
+      
+      // On met à jour l'affichage
+      appliquerFiltre();
+    }
+  }
+
+
+
+  // FONCTION POUR ANNULER UN AJOUT TEMPORAIRE
+function annulerAjoutTemp(idTemp) {
+  cacheEnregistrements = cacheEnregistrements.filter(e => String(e.id) !== String(idTemp));
+  cacheAnomalies = cacheAnomalies.filter(a => String(a.idEnregistrement) !== String(idTemp));
+  appliquerFiltre();
+}
+
+  // Fonction pour piloter l'affichage FIDS
+  function envoyerOrdre(nomVue) {
+    let donnees = null;
+    if (nomVue === "plan") {
+      const planSelect = document.getElementById("plan-select");
+      if (planSelect) {
+        if (planSelect) {
+          donnees = {
+            typePlan: planSelect.value // Objet structuré au lieu d'une simple chaîne
+          };
+        }
+      }
+    }
+
+    google.script.run
+      .withSuccessHandler(function() {
+      console.log("Ordre '", nomVue, "' avec données '", donnees, "' envoyé avec succès à l'écran FIDS !");
+      afficherToast("Le changement d'affichage a bien été pris en compte", "success");
+      })
+      .withFailureHandler(function(erreur) {
+      console.error("Erreur lors de l'envoi de l'ordre :", erreur);
+      })
+    .changerVueFids(nomVue,donnees);
+  }
+
+
+  function annulerModifCheckbox(idEnregistrement , valeurCheckbox){
+    // Recherche de la ligne précise grâce à data-id
+    const tr = document.querySelector(`#corps-tableau tr[data-id="${idEnregistrement}"]`);
+    if (tr) {
+      //récupération de la checkbox
+      const checkbox = tr.querySelector(".checkbox-temperature");
+      if (checkbox) checkbox.checked = !valeurCheckbox; // Inversion visuelle
+    }
+  };
+
+    // Fonction pour piloter l'affichage FIDS
+  function envoyerOrdrePause() {
+    google.script.run
+      .withSuccessHandler(function() {
+      console.log("Ordre pause envoyé avec succès à l'écran FIDS !");
+      afficherToast("La page d'affichage est en pause", "success");
+      })
+      .withFailureHandler(function(erreur) {
+      console.error("Erreur lors de l'envoi de l'ordre :", erreur);
+      })
+    .changerVueFids("pause");
+  }
+
+
+  function envoyerInstruction() {
+
+    const texteFr = document.getElementById("texte_fr").innerText;
+    const variableInput = document.getElementById("variable_traduction");
+    const valeurVariable = variableInput ? variableInput.value.trim() : "";
+
+    const ligneTraduction = cacheTraductions.find(item => item.idTexte == instructionSelect.value);
+    
+    let texteTraduit = "";
+    if (ligneTraduction && traductionSelect.value) {
+      const texteTraduitBrut = ligneTraduction[traductionSelect.value] || "";
+      texteTraduit = texteTraduitBrut.replace(/\[\.\.\.\]/g, valeurVariable);
+    }
+
+    let obj = {
+      'fr': texteFr , 
+      'traduction': texteTraduit
+    };
+
+    google.script.run
+    .withSuccessHandler(function() {
+      console.log("Ordre instruction envoyé avec succès à l'écran FIDS !", obj);
+      afficherToast("L'instruction a bien été envoyée", "success");
+    })
+    .withFailureHandler(function(erreur) {
+      console.error("Erreur lors de l'envoi de l'instruction :", erreur);
+    })
+    .changerVueFids("instruction", obj);
+  }
+
+  function envoyerTempsAffichage() {
+    const tQuai = inputTempsQuai.value;
+    const tAttente = inputTempsAttente.value;
+
+    if( tQuai < 1 || tAttente < 1){
+      afficherToast("Les temps doivent être supérieurs ou égaux à 1","error")
+    }else{
+      google.script.run
+      .withSuccessHandler(function() {
+      console.log("Ordre envoyé avec succès à l'écran FIDS !");
+      afficherToast("Les temps d'affichage ont été modifiés", "success");
+    })
+    .modifierTempsAffichage(tQuai,tAttente);
+    }
+  }
+
+  // Filtre et trie les données, puis réinitialise la page à 1
+  function appliquerFiltre (){
+    const transporterValue = document.getElementById("filtre-t").value.toLowerCase();
+    const clientValue = document.getElementById("filtre-c").value.toLowerCase();
+    const toggle = document.getElementById("myonoffswitch");
+    const estMasque = toggle.checked ;
+
+    const resultat = cacheEnregistrements.filter(item => {
+
+      if (estMasque && (item.statut === 'Départ' || item.heure_depart)) {
+        return false;
+      }
+      const filtreTransporteur = (item.transporteur || "").toLowerCase().includes(transporterValue);
+      const filtreClient = (item.client || "").toLowerCase().includes(clientValue);
+
+      return filtreTransporteur && filtreClient;
+    });
+
+    donneesFiltreesEnCours = trieEnregistrements(resultat);
+    pageActuelle = 1; // Remise à la première page lors du filtrage
+
+    afficherIndicateurChargement(false);
+    afficherPageActuelle();
+    
+
+    if (ligneActive) {
+      document.querySelectorAll(".colonne-heure").forEach(champ => {
+        champ.classList.add('hidden');
+      });
+    }
+  }
+
+  // TRIE DES DONNÉES
+  function trieEnregistrements(enregistrements) {
+    const SECTIONS = {
+      "Haute" : 1 ,
+      "Moyenne" : 2,
+      "Basse" : 3
+    }
+
+    return enregistrements.sort((a, b) => {
+      const sectionA = determinerSection(a);
+      const sectionB = determinerSection(b);
+
+      // Trie par section
+      if (sectionA !== sectionB) {
+        return SECTIONS[sectionA] - SECTIONS[sectionB] ;
+      }
+
+      // 2. Tri par Date (uniquement année-mois-jour pour ignorer le décalage T02:00 / T08:11)
+        const jourA = String(a.date).split('T')[0];
+        const jourB = String(b.date).split('T')[0];
+
+      if (jourA !== jourB) {
+        return jourA.localeCompare(jourB);
+      }     
+
+      // Trie par heure
+      if(sectionA === 'Haute'){
+        const heureA = String(a.heure_depart || '00:00');
+        const heureB = String(b.heure_depart || '00:00');
+        return heureA.localeCompare(heureB);
+      } else if( sectionA === "Moyenne"){
+        const heureA = String(a.heure_arrivee || '00:00');
+        const heureB = String(b.heure_arrivee || '00:00');
+        return heureA.localeCompare(heureB);
+      }
+      // Section "Basse" : aucun tri particulier
+      return 0;
+    });
+  }
+
+  // fonction pour afficher modal d'abandon des modifs
+  function confirmerAbandonModifications() {
+    return new Promise((resolve) => {
+      // Si pas de modification, on valide tout de suite
+      if (!formulaireModifie) {
+        resolve(true);
+        return;
+      }
+
+      // Ouvre ta modale existante
+      modifierModal('abandonModal');
+
+      // Clic sur "Oui, abandonner"
+      document.getElementById('btn-confirmer-abandon').onclick = () => {
+        formulaireModifie = false;
+        modifierModal('abandonModal'); // Ferme la modale
+        resolve(true);
+      };
+
+      // Clic sur "Annuler / Continuer la saisie"
+      document.getElementById('btn-annuler-abandon').onclick = () => {
+        modifierModal('abandonModal'); // Ferme la modale
+        resolve(false);
+      };
+    });
+  }
+
+  // Fonction qui détermine la section selon les variables nulles (pour le trie des enregistrements)
+  function determinerSection(enregistrement) {
+    if (!enregistrement.heure_depart && !enregistrement.heure_arrivee ) {
+      return "Basse";
+    }
+    else if (!enregistrement.heure_depart) {
+      return "Moyenne";
+    }
+    return "Haute";
+  }
+
+
+  function basculerOnglet(idOnglet, idContenu){
+    // 1. Réinitialise tous les onglets et contenus
+    document.querySelectorAll('.modal-onglet .onglet').forEach(btn => btn.classList.remove('actif'));
+    document.querySelectorAll('.modal-contenu').forEach(contenu => contenu.classList.remove('actif'));
+
+    // 2. Active l'onglet et le contenu ciblés
+    document.getElementById(idOnglet).classList.add('actif');
+    document.getElementById(idContenu).classList.add('actif');
+  }
+
+  // Fonction pour récupérer le temps d'affichages des vues du second écran
+  function recupTempsAffichage(){
+    google.script.run
+    .withSuccessHandler(function(donnees) {
+      inputTempsQuai.value = donnees.tempsQuai ;
+      inputTempsAttente.value = donnees.tempsAttente ;
+      console.log("Les temps ont bien été récupérés");
+    })
+    .getTempsConfiguration();
+  }
+
+  // fonction pour vérifier si le formulaire a été modifié. (Pour modal de confirmation d'abandon des nouvelles données)
+  function ecouterFormulaire() {
+    const formulaire = document.getElementById("formulaire-details") || document.querySelector('.details-enregistrement form');
+    if (!formulaire) return;
+
+    // Détecte tout changement dans les inputs, selects et textareas du formulaire
+    formulaire.addEventListener('input', () => {
+      formulaireModifie = true;
+    });
+  
+    formulaire.addEventListener('change', () => {
+      formulaireModifie = true;
+    });
+  }
+
+  function apercuPlan(typePlan) {
+    const placeholder = document.getElementById('apercu-placeholder');
+    const zoneSvg = document.getElementById('zone-svg-apercu');
+
+    // Masque le texte  et affiche la zone SVG
+    placeholder.classList.add('hidden');
+    zoneSvg.classList.remove('hidden');
+
+    zoneSvg.innerHTML = obtenirSvgPlan(typePlan); 
+  }
+
+  /**
+   * Vide et réaffiche la liste des anomalies pour l'enregistrement sélectionné
+   */
+  function afficherAnomalies(idEnregistrement) {
+  if (!zoneAnomalie) return;
+
+  // On vide les anciennes cartes d'anomalies du formulaire
+  zoneAnomalie.innerHTML = "";
+
+  if (!idEnregistrement || !cacheAnomalies) return;
+
+  // On filtre les anomalies appartenant à cet enregistrement
+  const anomaliesFiltrees = cacheAnomalies.filter(
+    anomalie => String(anomalie.idEnregistrement) === String(idEnregistrement)
+  );
+
+  // On régénère chaque carte
+  anomaliesFiltrees.forEach(anomalie => {
+    ajouterCarteAnomalie(anomalie);
+  });
+  }
+
+    function reinitialiser(){
+    const inputTransporter = document.getElementById("filtre-t");
+    const inputClient = document.getElementById("filtre-c");
+    const aujourdhui = formaterDateLocal(new Date());
+    const toggle = document.getElementById("myonoffswitch"); 
+
+    if (inputDateDebut) inputDateDebut.value = aujourdhui;
+    if (inputDateFin) inputDateFin.value = aujourdhui;
+
+    inputTransporter.value = "";
+    inputClient.value ="";
+    toggle.checked = false;
+    
+    chargerEnregistrements();
+  }
+
+
+  function ajouterCarteAnomalie(donnees = {}) {
+
+    const zoneAnomalie = document.getElementById("zone-anomalies");
+    if (!zoneAnomalie) return;
+
+    // 1. Récupération du type (depuis les données passées ou depuis le <select>)
+    const selectType = document.getElementById("type_anomalie");
+    const typeAnomalie = donnees.type_anomalie || (selectType ? selectType.value : "");
+    if (!typeAnomalie) return;
+
+    // 2. Génération d'IDs uniques
+    const idSuffixe = Date.now() + "_" + Math.random().toString(36).substr(2, 4);
+    const idDebut = "debut_" + idSuffixe;
+    const idFin = "fin_" + idSuffixe;
+
+    // 3. Création de la carte
+    const divCarte = document.createElement("div");
+    divCarte.classList.add("form-ligne-anomalies");
+    if (donnees.id) divCarte.dataset.id = donnees.id;
+
+    // Badge type
+    const p = document.createElement("p");
+    p.innerText = typeAnomalie;
+
+    // Formateur YYYY-MM-DDTHH:mm pour <input type="datetime-local">
+    const formatDateTimeInput = (val) => {
+      if (!val) return "";
+      let str = String(val).replace(" ", "T");
+      return str.includes("T") ? str.substring(0, 16) : str;
+    };
+
+    // Bloc Début
+    const divDebut = document.createElement("div");
+    divDebut.classList.add("bloc-input-anomalie");
+    const labelDebut = document.createElement("label");
+    labelDebut.htmlFor = idDebut;
+    labelDebut.innerHTML = "Horodatage de début<span class='cooperl_pink'>*</span>";
+    const dateDebut = document.createElement("input");
+    dateDebut.type = "datetime-local";
+    dateDebut.id = idDebut;
+    dateDebut.value = formatDateTimeInput(donnees.horodatage_debut);
+    divDebut.appendChild(labelDebut);
+    divDebut.appendChild(dateDebut);
+
+    // Bloc Fin
+    const divFin = document.createElement("div");
+    divFin.classList.add("bloc-input-anomalie");
+    const labelFin = document.createElement("label");
+    labelFin.htmlFor = idFin;
+    labelFin.textContent = "Horodatage de fin";
+    const dateFin = document.createElement("input");
+    dateFin.type = "datetime-local";
+    dateFin.id = idFin;
+    dateFin.value = formatDateTimeInput(donnees.horodatage_fin);
+    divFin.appendChild(labelFin);
+    divFin.appendChild(dateFin);
+
+    // Assemblage
+    divCarte.appendChild(p);
+    divCarte.appendChild(divDebut);
+    divCarte.appendChild(divFin);
+
+    const btn = document.createElement("button");
+    btn.classList.add("modal-close-btn");
+    btn.type = "button";
+    btn.innerText = "X";
+  // Suppression directe de la carte parent
+    btn.onclick = () => {
+      formulaireModifie = true;
+      divCarte.remove();
+    }
+    divCarte.appendChild(btn);
+
+    zoneAnomalie.appendChild(divCarte);
+  }
+
+  function ajouterLignesFeuilleTemp(docsJson) {
+    const zoneTemperature = document.getElementById("zone-temperature");
+    if (!zoneTemperature) return;
+
+    zoneTemperature.innerHTML = "";
+    if (!docsJson) return;
+
+    let docs = [];
+
+    try {
+      // Si docsJson est déjà un objet/tableau JS, on l'utilise, sinon on le parse
+      docs = typeof docsJson === "string" ? JSON.parse(docsJson) : docsJson;
+    } catch (e) {
+      console.error("Erreur de parsing JSON dans ajouterLignesFeuilleTemp :", e, docsJson);
+      return;
+    }
+
+    if (!Array.isArray(docs)) return;
+
+    docs.forEach(doc => {
+      if (!doc || !doc.url) return;
+
+      const badge = document.createElement("div");
+      badge.className = "badge-doc-container";
+
+      const btnTemperature = document.createElement("button");
+      btnTemperature.type = "button";
+      btnTemperature.className = "btn-lien-temperature";
+      btnTemperature.innerText = "📄 " + (doc.type || "Document");
+
+      btnTemperature.onclick = (e) => {
+        e.preventDefault(); // Empêche le submit 
+        window.open(doc.url, "_blank");
+      };
+
+      // Bouton de suppression
+      const btnSuppr = document.createElement("button");
+      btnSuppr.type = "button";
+      btnSuppr.className = "btn-suppr-doc";
+      btnSuppr.title = "Supprimer ce document";
+      btnSuppr.innerText = "✕";
+      btnSuppr.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      // Extraction de l'ID Google Drive depuis l'URL
+      const match = doc.url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      const idDrive = match ? match[1] : null;
+
+        demanderSuppressionDoc(idDrive,doc.url);
+      };
+
+      badge.appendChild(btnTemperature);
+      badge.appendChild(btnSuppr);
+      zoneTemperature.appendChild(badge);
+    });
+  }
+
+  // Fonction qui ouvre la modale de suppression de feuille Température
+  function demanderSuppressionDoc(idDocument, urlDocument) {
+    const idForm = document.getElementById("idForm").value;
+    if (!idForm) return;
+
+    // Stockage temporaire des données du document
+    documentASupprimer = {
+      idDocument: idDocument,
+      urlDocument: urlDocument
+    };
+
+    // Ouverture de la modale HTML
+    modifierModal('suppressionModalTemp');
+  }
+
+  function confirmerSuppressionDoc() {
+    //fermer la modale
+    modifierModal('suppressionModalTemp');
+
+    const idDocument = documentASupprimer.idDocument ;
+    const urlDocument = documentASupprimer.urlDocument ;
+    const idForm = document.getElementById("idForm").value;
+    if (!idForm) return;
+
+    const index = cacheEnregistrements.findIndex(e => String(e.id) === String(idForm));
+    if (index === -1) return;
+
+    const enregistrement = cacheEnregistrements[index];
+    const ancienneChaineDocs = enregistrement.feuille_temperature_url;
+    const ancienEtatGenere = enregistrement.feuille_temperature_generee;
+
+    // Filtrage local de l'URL
+    let docs = [];
+    try {
+      docs = JSON.parse(ancienneChaineDocs);
+    } catch (e) {
+      docs = [];
+    }
+
+    const docsFiltres = docs.filter(doc => doc.url !== urlDocument);
+
+    // Mise à jour de l'objet dans le cache
+    enregistrement.feuille_temperature_url = docsFiltres.length > 0 ? JSON.stringify(docsFiltres) : "";
+    enregistrement.feuille_temperature_generee = docsFiltres.length > 0;
+
+    // Rafraîchissement immédiat de l'IHM (Formulaire + Tableau)
+    ajouterLignesFeuilleTemp(enregistrement.feuille_temperature_url);
+    remplirSelectTypeTemp(cacheTypeTemp, docsFiltres);
+    
+    const checkboxForm = document.getElementById('feuille_temperature_generee');
+    if (checkboxForm) checkboxForm.checked = enregistrement.feuille_temperature_generee;
+    
+    appliquerFiltre();
+    afficherToast("Suppression du document en cours...", "waiting");
+
+    // Appel du serveur Apps Script
+    google.script.run
+      .withSuccessHandler(function(reponse) {
+        if (reponse && reponse.success) {
+          afficherToast("Document supprimé avec succès !", "success");
+        } else {
+          // Rollback en cas d'échec serveur
+          restaurerEtatDoc(index, ancienneChaineDocs, ancienEtatGenere);
+          afficherToast(reponse?.message || "Erreur lors de la suppression.", "error");
+        }
+      })
+      .withFailureHandler(function(erreur) {
+        // Rollback en cas d'erreur réseau
+        restaurerEtatDoc(index, ancienneChaineDocs, ancienEtatGenere);
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+    .apiSupprimerFeuilleTemp(enregistrement, idDocument, urlDocument);
+  }
+
+
+
+  function formaterBadgeStatut(statut) {
+    if (!statut) return '';
+
+    const cle = statut.trim();
+    const classeBadge = STATUTS_MAP.get(cle) || "badge-defaut";
+
+    return `<span class="badge-statut ${classeBadge}">${statut}</span>`;
+  }
+
+  function ajouterTransporteur(transporteur) {
+  if (!transporteur) return;
+
+    if (!cacheParams.transporteurs.includes(transporteur)) {
+      cacheParams.transporteurs.push(transporteur);
+      attacherAutocompletion("transporteur", "liste-transporteur", cacheParams.transporteurs);
+      attacherAutocompletion("filtre-t", "filtre-transporteur", cacheParams.transporteurs);
+    }
+  }
+
+  function ajouterClient(client) {
+  if (!client) return;
+
+    if (!cacheParams.clients.includes(client)) {
+      cacheParams.clients.push(client);
+      attacherAutocompletion("client", "liste-client", cacheParams.clients);
+      attacherAutocompletion("filtre-c", "filtre-client", cacheParams.clients);
+    }
+  }
+
+
+function genererFeuilleTemp(){
+    const idEnregistrement = document.getElementById("idForm").value;
+    const selectFeuille = document.getElementById("feuille-temperature");
+    const typeFeuille = selectFeuille.options[selectFeuille.selectedIndex].text;
+    const idFeuille = selectFeuille.value;
+    const numSemaine = document.getElementById("input-num-semaine").value;
+
+    if(!idEnregistrement || !typeFeuille || !idFeuille ){
+      afficherToast("Erreur : élément manquant","error");
+      return;
+    }
+
+    // Capturer la saisie actuelle du formulaire et les anomalies
+    const enregistrementSaisies = lireChampsFormulaire();
+    const anomaliesSaisies = lireAnomaliesFormulaire(enregistrementSaisies.id, enregistrementSaisies.transporteur, enregistrementSaisies.client);
+
+    // Contrôle de surface
+    if (!verifFormulaire(enregistrementSaisies)) return;
+
+    // Mettre à jour le cache local avec la saisie sans perdre le reste
+    const index = cacheEnregistrements.findIndex(e => String(e.id) === String(idEnregistrement));
+    if (index !== -1) {
+      cacheEnregistrements[index] = { ...cacheEnregistrements[index], ...enregistrementSaisies };
+      appliquerFiltre();
+    }
+
+    // Récupérer l'enregistrement complet du cache (contient la liste des URLs déjà générées)
+    const enregistrementTemp = cacheEnregistrements.find(e => String(e.id) === String(idEnregistrement));
+
+    if (!enregistrementTemp) {
+      afficherToast("Erreur : enregistrement introuvable en mémoire", "error");
+      return;
+    }
+    afficherIndicateurChargement(true);
+
+    google.script.run
+      .withSuccessHandler(function(reponse) {
+        afficherIndicateurChargement(false);
+
+        if(reponse && reponse.success && reponse.enregistrement){
+          afficherToast("Création de la feuille de température réussie !", "success");
+
+          // Mise à jour cache enregistrement
+          const index = cacheEnregistrements.findIndex(e => String(e.id) === String(reponse.enregistrement.id));
+          if(index !== -1){
+            cacheEnregistrements[index] = reponse.enregistrement;
+          }
+
+          // Mise à jour cache anomalies
+          if (reponse.anomalies && Array.isArray(reponse.anomalies)) {
+            cacheAnomalies = cacheAnomalies.filter(a => String(a.idEnregistrement) !== String(reponse.enregistrement.id));
+            cacheAnomalies.push(...reponse.anomalies);
+          }
+
+          // Redessine la table
+          appliquerFiltre();
+
+          // Met à jour le formulaire de détail
+          const checkboxForm = document.getElementById('feuille_temperature_generee');
+          if (checkboxForm) {
+            checkboxForm.checked = Boolean(reponse.enregistrement.feuille_temperature_generee);
+          }
+
+          ajouterLignesFeuilleTemp(reponse.enregistrement.feuille_temperature_url);
+
+          let docsMisAJour = [];
+          try {
+            docsMisAJour = typeof reponse.enregistrement.feuille_temperature_url === "string"
+              ? JSON.parse(reponse.enregistrement.feuille_temperature_url)
+              : reponse.enregistrement.feuille_temperature_url;
+          } catch(e) { docsMisAJour = []; }
+
+          // 1. On re-remplit le select en excluant le type qui vient d'être généré
+          remplirSelectTypeTemp(cacheTypeTemp, docsMisAJour);
+
+          // 2. On remet la sélection sur "-- Sélectionner --"
+          document.getElementById("feuille-temperature").value = '';
+          formulaireModifie = false;
+
+        } else {
+          afficherToast("Erreur : " + (reponse ? reponse.message : "Échec serveur"), "error");
+        }
+      })
+      .withFailureHandler(function(erreur) {
+        afficherIndicateurChargement(false);
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+    .apiGenererFeuilleTemp(enregistrementTemp, idFeuille, typeFeuille, anomaliesSaisies,numSemaine);
+  }
+
+  // Fonction pour annuler le changement local si le serveur échoue
+  function restaurerEtatDoc(index, ancienneChaine, ancienEtat) {
+    cacheEnregistrements[index].feuille_temperature_url = ancienneChaine;
+    cacheEnregistrements[index].feuille_temperature_generee = ancienEtat;
+    
+    ajouterLignesFeuilleTemp(ancienneChaine);
+    const checkboxForm = document.getElementById('feuille_temperature_generee');
+    if (checkboxForm) checkboxForm.checked = ancienEtat;
+    appliquerFiltre();
+  }
+
+
+  function genererLavage(){
+
+    const enregistrement = lireChampsFormulaire();
+    if (!verifFormulaire(enregistrement, false)) return;
+
+    const prixForm = document.getElementById("input-lavage").value ;
+    const typePaiementForm = document.getElementById("lavage-select").value;
+    const transporteurForm = document.getElementById("transporteur").value;
+    const clientForm = document.getElementById("client").value;
+    const dateForm = document.getElementById("dateForm").value;
+    const immatriculationForm = document.getElementById("immatriculation").value;
+
+    if(prixForm < 1 ){
+      afficherToast("Le prix doit être supérieur ou égal à 1€","error");
+      return ;
+    }
+    afficherIndicateurChargement(true);
+    const donnees = {
+      idEnregistrement : enregistrement.id,
+      prix : prixForm,
+      typePaiement : typePaiementForm,
+      transporteur : transporteurForm,
+      client : clientForm,
+      date : dateForm,
+      immatriculation : immatriculationForm
+    }
+
+ google.script.run
+      .withSuccessHandler(function(reponse) {
+        afficherIndicateurChargement(false);
+        if(reponse && reponse.success){
+          const fenetre = window.open('', '_blank');
+          if (fenetre) {
+            fenetre.document.write(reponse.html);
+            fenetre.document.close();
+          }
+
+          // 1. Mise à jour du cache local et de la checkbox cachée/formulaire
+          const checkboxLavage = document.getElementById("lavage_paye");
+          if (checkboxLavage) checkboxLavage.checked = true;
+
+          const index = cacheEnregistrements.findIndex(e => String(e.id) === String(enregistrement.id));
+          if (index !== -1) {
+            cacheEnregistrements[index].lavage_paye = true;
+          }
+
+          // 2. Désactiver la zone du formulaire
+          verrouillerZoneLavage(true);
+
+          // 3. Rafraîchir le tableau principal pour afficher l'icône
+          appliquerFiltre();
+          afficherToast("Le suivi du lavage a été éffectué","success");
+        } else {
+      afficherToast(reponse?.message || "Accès refusé ou erreur lors de la facturation.", "error");
+    }
+      })
+      .withFailureHandler(function(erreur) {
+        afficherIndicateurChargement(false);
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+    .apiGenererLavage(donnees);
+  }
+
+
+  function venteBarreArrimage(){  
+
+    const enregistrement = lireChampsFormulaire();
+    if (!verifFormulaire(enregistrement, false)) return;
+
+    const transporteurForm = document.getElementById("transporteur").value;
+    const dateForm = document.getElementById("dateForm").value;
+    const nombreForm = document.getElementById("input-arrimage").value;
+
+    if(nombreForm < 1 ){
+      afficherToast("Le nombre de barres d'arrimage doit être supérieur ou égal à 1","error");
+      return ;
+    }
+    afficherIndicateurChargement(true);
+
+    const donnees = {
+      nbBarres : nombreForm,
+      transporteur : transporteurForm,
+      dateJour : dateForm,
+    }
+
+    google.script.run
+      .withSuccessHandler(function(reponse) {
+        afficherIndicateurChargement(false);
+        if(reponse && reponse.success){
+          const resultat = reponse.donnees;
+          // On pré-remplit la modale d'aperçu avec les données renvoyées
+          document.getElementById("mail-destinataire").value = resultat?.destinataire || "";
+          document.getElementById("mail-sujet").value = resultat?.objet || "";
+          document.getElementById("zone-corps-mail").innerHTML = resultat?.html || "";
+          document.getElementById("mail-cc").value = "soizic.deutschmann@cooperl.com,jpb22@l-ex.fr";
+          
+          modifierModal("modal-apercu-mail");
+
+        }
+      }).withFailureHandler(function(erreur) {
+        afficherIndicateurChargement(false);
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+    .apiGenererVenteArrimage(donnees);
+  }
+
+
+  async function confirmerEtEnvoyerMail() {
+
+    const sujetInput = document.getElementById("mail-sujet").value.trim();
+    const destinataireInput = document.getElementById("mail-destinataire");
+    const ccIntput = document.getElementById("mail-cc");
+
+    // Contrôle de l'Objet
+    if (!sujetInput) {
+      afficherToast("L'objet du message ne peut pas être vide.", "error");
+      return;
+    }
+
+  // Vérification destinataire (non vide + format correct)
+  if (!destinataireInput.value.trim() || !destinataireInput.checkValidity()) {
+    afficherToast("Une ou plusieurs adresses sont invalides", "error");
+    return;
+  }
+
+  // Vérification CC (format correct si renseigné)
+  if (!ccIntput.checkValidity()) {
+    afficherToast("Une ou plusieurs adresses en copie (CC) sont invalides.", "error");
+    return;
+  }
+
+    const transporteurForm = document.getElementById("transporteur").value;
+    const immatriculationForm = document.getElementById("immatriculation").value;
+    const clientForm = document.getElementById("client").value;
+    const dateForm = document.getElementById("dateForm").value;
+    const nombreForm = document.getElementById("input-arrimage").value;
+
+    const donnees = {
+      "nb vente" : nombreForm,
+      "transporteur" : transporteurForm,
+      "client" : clientForm,
+      "date" : dateForm,
+      "immat" : immatriculationForm
+    }
+    
+    const payload = {
+      destinataire: document.getElementById("mail-destinataire").value ,
+      objet: sujetInput ,
+      html: document.getElementById("zone-corps-mail").innerHTML,
+      cc : document.getElementById("mail-cc").value,
+      enregistrement : donnees,
+      pieceJointe: null // Sera rempli si un fichier est choisi
+    };
+
+    if (!payload.destinataire || !payload.destinataire.includes("@")) {
+      afficherToast("Veuillez saisir une adresse e-mail valide.", "error");
+      return;
+    }
+    const inputPj = document.getElementById("mail-pj");
+    const fichier = inputPj?.files?.[0];
+
+    afficherIndicateurChargement(true);
+
+    // Si un fichier est présent, on attend sa lecture avec await
+    if (fichier) {
+      try {
+        payload.pieceJointe = await lireFichierEnBase64(fichier);
+      } catch (e) {
+        afficherIndicateurChargement(false);
+        afficherToast("Erreur lors de la lecture du fichier", "error");
+        return;
+      }
+    }
+
+    google.script.run
+      .withSuccessHandler(function(reponse) {
+        afficherIndicateurChargement(false);
+
+        if (reponse.success) {
+          afficherToast("E-mail envoyé avec succès !", "success");
+          modifierModal("modal-apercu-mail");
+          // Réinitialisation du champ fichier
+        const inputPj = document.getElementById("mail-pj");
+        if (inputPj) inputPj.value = "";
+        
+        } else {
+          afficherToast("Erreur d'envoi : " + reponse.error, "error");
+        }
+      }).withFailureHandler(function(erreur) {
+        // Débloque l'indicateur de chargement en cas d'échec critique ou réseau
+        afficherIndicateurChargement(false);
+        afficherToast("Erreur système : " + erreur.message, "error");
+      })
+    .apiEnvoyerMailArrimage(payload);
+  }
+
+  // fonction helper pour convertir les caractères spéciaux en entités HTML sécurisées :
+  function echapperHtml(texte) {
+    if (!texte) return '';
+    return String(texte)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // Fonction utilitaire pour lire le fichier (renvoie une Promise)
+  function lireFichierEnBase64(fichier) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({
+        bytes: reader.result.split(',')[1],
+        mimeType: fichier.type,
+        nom: fichier.name
+      });
+      reader.onerror = error => reject(error);
+      reader.readAsDataURL(fichier);
+    });
+  }
+
+
+  function verrouillerZoneLavage(estVerrouille) {
+    const inputPrix = document.getElementById("input-lavage");
+    const selectPaiement = document.getElementById("lavage-select");
+    const btnLavage = document.getElementById("btn-vente-lavage");
+
+    if (inputPrix) inputPrix.disabled = estVerrouille;
+    if (selectPaiement) selectPaiement.disabled = estVerrouille;
+    if (btnLavage) {
+      btnLavage.disabled = estVerrouille;
+      btnLavage.style.opacity = estVerrouille ? "0.5" : "1";
+      btnLavage.style.cursor = estVerrouille ? "not-allowed" : "pointer";
+    }
+  }
+
+    //--FONCTION PAGINATION 
+  function changerPage(nombre) {
+    const totalPages = Math.ceil(donneesFiltreesEnCours.length / TAILLE_PAGE);
+    const nouvellePage = pageActuelle + nombre; // nombre = +1 ou -1
+
+    if (nouvellePage >= 1 && nouvellePage <= totalPages) {
+      pageActuelle = nouvellePage;
+      afficherPageActuelle();
+    }
+  }
+
+  function afficherPageActuelle() {
+    const debut = (pageActuelle - 1) * TAILLE_PAGE;
+    const fin = debut + TAILLE_PAGE;
+    const trancheDonnees = donneesFiltreesEnCours.slice(debut, fin);
+
+    remplirLignesTableau(trancheDonnees);
+    mettreAJourControlesPagination();
+  }
+
+  
+function mettreAJourControlesPagination() {
+    const infoPagination = document.getElementById("info-pagination");
+    const btnPrev = document.getElementById("btn-page-prev");
+    const btnNext = document.getElementById("btn-page-next");
+
+    const totalElements = donneesFiltreesEnCours.length;
+    const totalPages = Math.ceil(totalElements / TAILLE_PAGE) || 1;
+
+    // 1. Toujours mettre à jour et afficher le texte du compteur
+    if (infoPagination) {
+      if (totalElements <= TAILLE_PAGE) {
+        infoPagination.innerText = `Total : ${totalElements} enregistrement${totalElements > 1 ? 's' : ''}`;
+      } else {
+        infoPagination.innerText = `Page ${pageActuelle} / ${totalPages} (${totalElements} enregistrements)`;
+      }
+    }
+    // 2. Afficher ou masquer les boutons Précédent / Suivant selon le besoin
+    if (totalElements > TAILLE_PAGE) {
+      if (btnPrev) {
+        btnPrev.classList.remove("hidden");
+        btnPrev.disabled = (pageActuelle === 1);
+      }
+      if (btnNext) {
+        btnNext.classList.remove("hidden");
+        btnNext.disabled = (pageActuelle === totalPages);
+      }
+    } else {
+      if (btnPrev) btnPrev.classList.add("hidden");
+      if (btnNext) btnNext.classList.add("hidden");
+    }
+  }
+
+
+  function obtenirNumeroSemaine() {
+    const dateForm = document.getElementById('dateForm').value;
+    const numSemaineForm = document.getElementById('input-num-semaine');
+    const d = new Date(dateForm);
+    
+    // Sécurité si la date reçue est invalide
+    if (isNaN(d.getTime())) return null;
+
+    // Réglage sur le jeudi de la semaine en cours (conforme norme ISO 8601)
+    // En JS,getDay() renvoie 0 pour Dimanche, 1 pour Lundi, ..., 6 pour Samedi
+    const jourSemaine = (d.getDay() + 6) % 7; // Convertit : Lundi = 0, ..., Dimanche = 6
+    d.setDate(d.getDate() - jourSemaine + 3);   // Décale la date jusqu'au Jeudi de la même semaine
+
+    // Récupération du 1er janvier de l'année du Jeudi calculé
+    const premierJanvier = new Date(d.getFullYear(), 0, 1);
+
+    // Calcul du nombre de jours écoulés entre le 1er janvier et ce Jeudi
+    const diffJours = Math.floor((d - premierJanvier) / 86400000);
+
+    // Calcul du numéro de semaine (+1 car la semaine 1 commence à diffJours < 7)
+    const numSemaine =  Math.floor(diffJours / 7) + 1;
+    numSemaineForm.value = numSemaine;
+
+  }
+
+  // Fonction pour afficher ou masquer les actions annexes
+  function afficherSectionsAnnexes(afficher) {
+    const ids = ["section-temp", "section-lavage", "section-arrimage","form-footer"];
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        if (afficher) {
+          el.classList.remove("hidden");
+        } else {
+          el.classList.add("hidden");
+        }
+      }
+    });
+  }
+
+  // Lancement automatique du chargement au démarrage
+  chargerEnregistrements();
+  chargerParams();
+  chargerQuais();
+  chargerTypeTemp();
+  chargerTraductions();
+  ecouterFormulaire();
+
+  document.addEventListener("DOMContentLoaded", () => {
+  const variable = document.getElementById("variable_traduction");
+  variable.addEventListener("input", modifierPrevisualisationFR);
+  recupererPlan("zone-svg-apercu");
+  
+  const inputDateForm = document.getElementById("dateForm");
+    if (inputDateForm) {
+      inputDateForm.addEventListener("change", obtenirNumeroSemaine);
+      inputDateForm.addEventListener("input", obtenirNumeroSemaine);
+    }
+});
+const toggle = document.getElementById("myonoffswitch");
+if (toggle) {
+  toggle.addEventListener("change", appliquerFiltre);
+}
+
+document.getElementById("filtre-t")?.addEventListener("input", appliquerFiltre);
+document.getElementById("filtre-c")?.addEventListener("input", appliquerFiltre);
+</script>

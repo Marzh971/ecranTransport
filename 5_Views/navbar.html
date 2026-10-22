@@ -1,0 +1,51 @@
+<nav id="navbar-cooperl" class="navbar-cooperl">
+  <!-- Section Gauche : Logo -->
+  <div class="nav-logo">
+    <a href="https://docs.google.com/spreadsheets/d/1nw2I7pgOELE_GHrt1lXXyn71uC12533w4S-Kt7tP5Tc/edit?gid=519840117#gid=519840117"
+      target="_blank">
+      <img src="https://lh3.googleusercontent.com/d/1PoXChP7MCXBirAN40AzzGk1aWTZ0hVUj" alt="logo Cooperl">
+    </a>
+  </div>
+
+  <!-- Section Centre : Onglets de Navigation OU titre -->
+  <div class="nav-links">
+
+    <!-- Mode FIDS : Titre fixe -->
+    <h1 id="nav-titreQuai" class="hidden nav-title">LOADING INFORMATION / INFORMATIONS DE CHARGEMENT</h1>
+    <h1 id="nav-titreAttente" class="hidden nav-title">WAITING FOR THE PLATFORM / ATTENTE DE QUAI
+      <span id="titreAttente"> </span> </h1>
+
+    <!-- Liens -->
+    <div id="nav-ancre">
+      <a href="#" class="nav-link active" onclick="basculerVue('dashboard'); return false;" id="btn-dashboard">
+        Suivi des enregistrements
+      </a>
+      <a href="#" class="nav-link" onclick="basculerVue('indicateur'); return false;" id="btn-indicateur">
+        Indicateur de performance
+      </a>
+    </div>
+
+  </div>
+
+  <div class="nav-right">
+    <p id="date"></p>
+    <p id="heureJour"></p>
+  </div>
+
+</nav>
+
+<script>
+  function getHeureEtDate(){
+    const aujourdHui = new Date();
+    const date = aujourdHui.toLocaleDateString('fr-FR');
+    document.getElementById("date").innerText = date;
+
+    const heure = String(aujourdHui.getHours()).padStart(2, '0');
+    const minute = String(aujourdHui.getMinutes()).padStart(2, '0');
+
+    document.getElementById('heureJour').textContent = `${heure}H${minute}`;
+  }
+  getHeureEtDate();
+  setInterval(getHeureEtDate,1000);
+
+</script>

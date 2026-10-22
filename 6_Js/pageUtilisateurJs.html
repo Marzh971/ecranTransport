@@ -1,0 +1,160 @@
+<script>
+
+  
+  const inputDateDebut = document.getElementById("dateDebut");
+  const inputDateFin = document.getElementById("dateFin");
+
+  const aujourdhui = formaterDateLocal(new Date());
+  
+
+  if (inputDateDebut) inputDateDebut.value = aujourdhui;
+  if (inputDateFin) inputDateFin.value = aujourdhui;
+
+
+  // Fonction pour alterner la vue avec la navbar
+  function basculerVue(nomVue) {
+    const vueDashboard = document.getElementById('vue-dashboard');
+    const vueIndicateur = document.getElementById('vue-indicateur');
+    const btnDashboard = document.getElementById('btn-dashboard');
+    const btnIndicateur = document.getElementById('btn-indicateur');
+
+    if (nomVue === 'indicateur') {
+      if (vueDashboard) vueDashboard.classList.add('hidden');
+      if (vueIndicateur) vueIndicateur.classList.remove('hidden');
+      if (btnDashboard) btnDashboard.classList.remove('active');
+      if (btnIndicateur) btnIndicateur.classList.add('active');
+
+      // Charger les données KPI uniquement à l'ouverture de l'onglet si elles ne sont pas chargées
+      if (typeof cacheKpiEnregistrements !== "undefined" && cacheKpiEnregistrements.length === 0) {
+        if (typeof chargerDonneesIndicateursServeur === "function") {
+          chargerDonneesIndicateursServeur();
+        }
+      }
+    } else {
+      if (vueIndicateur) vueIndicateur.classList.add('hidden');
+      if (vueDashboard) vueDashboard.classList.remove('hidden');
+      if (btnIndicateur) btnIndicateur.classList.remove('active');
+      if (btnDashboard) btnDashboard.classList.add('active');
+    }
+  }
+
+
+  function filtrer(){
+    if(inputDateDebut.value <= inputDateFin.value ){
+      chargerEnregistrements(inputDateDebut.value, inputDateFin.value);
+      document.getElementById("filtre-t").value = "";
+      document.getElementById("filtre-c").value = "";
+    } else {
+      afficherToast("La date de fin doit être supérieure à la date de début", "error");
+    }
+    
+  }
+
+
+
+    // Utilitaire pour obtenir YYYY-MM-DD en heure locale sans décalage UTC
+  function formaterDateLocal(d) {
+    const annee = d.getFullYear();
+    const mois = String(d.getMonth() + 1).padStart(2, "0");
+    const jour = String(d.getDate()).padStart(2, "0");
+    return `${annee}-${mois}-${jour}`;
+  }
+
+  // Fonction pour formater les dates au format FR
+  function formaterDateFR(dateStr) {
+    if (!dateStr) return '-';
+    // Si la date est au format ISO (YYYY-MM-DD)
+    if (String(dateStr).includes('-')) {
+      const parties = String(dateStr).substring(0, 10).split('-');
+      if (parties.length === 3) {
+        return `${parties[2]}/${parties[1]}/${parties[0]}`;
+      }
+    }
+    return dateStr;
+  }
+
+  // Formateur YYYY-MM-DDTHH:mm pour <input type="datetime-local">
+  const formatDateTimeInput = (val) => {
+    if (!val) return "";
+    let str = String(val).replace(" ", "T");
+    return str.includes("T") ? str.substring(0, 16) : str;
+  };
+
+  // Partie bouton retour en haut de page et formulaire
+  window.onscroll = function() { scrollFunction(); };
+
+  function scrollFunction() {
+    const btnFleche = document.getElementById("btn-fleche");
+    if (!btnFleche) return;
+
+    if (document.body.scrollTop > 20 || document.documentElement.scrollTop > 20) {
+      btnFleche.classList.remove('hidden');
+    } else {
+      btnFleche.classList.add('hidden');
+    }
+  }
+
+  function monterHautPage() {
+    document.body.scrollTop = 0; // Pour Safari
+    document.documentElement.scrollTop = 0; // Pour Chrome, Firefox, IE et Opera
+  }
+
+
+
+function modifierModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+
+  modal.classList.toggle("hidden");
+
+  // Si c'est la modale de l'écran, on rafraîchit les temps
+  if (modalId === 'ecranModal') {
+    recupTempsAffichage();
+  }
+}
+
+// Fonction pour afficher le Toast
+function afficherToast(message, type = "success") {
+  const toast = document.createElement("div");
+  toast.className = "toast toast-"+type;
+  toast.textContent = message;
+  
+  document.getElementById("toast").appendChild(toast);
+
+  
+  // Masquer et supprimer après 3 secondes
+  setTimeout(() => {
+    toast.classList.add("hide");
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+// Fonction pour gérer l'affichage de la modale Hors-Ligne
+function verifierEtatConnexion() {
+  const modalHorsLigne = document.getElementById("modal-hors-ligne");
+  if (!modalHorsLigne) return;
+
+  if (navigator.onLine) {
+    // La connexion est active : on masque la modale
+    modalHorsLigne.classList.add("hidden");
+  } else {
+    // La connexion est coupée : on affiche la modale (impossible à fermer manuellement)
+    modalHorsLigne.classList.remove("hidden");
+  }
+}
+
+// Écouteurs d'événements réseau natifs du navigateur
+window.addEventListener("online", () => {
+  verifierEtatConnexion();
+  afficherToast("Connexion Internet rétablie !", "success");
+});
+
+window.addEventListener("offline", () => {
+  verifierEtatConnexion();
+});
+
+// Vérification immédiate au chargement de la page
+document.addEventListener("DOMContentLoaded", verifierEtatConnexion);
+
+
+</script>

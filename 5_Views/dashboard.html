@@ -1,0 +1,552 @@
+<div>
+
+  <!-- CONTENEUR FLEX (TABLEAU + FORMULAIRE CÔTE À CÔTE) -->
+  <div class="conteneur-dashboard">
+
+    <div class="zone-tableau">
+
+      <!-- FILTRES -->
+      <div class="ligne-filtre">
+        <div class="groupe-filtre groupe-filtre-instant">
+          <div class="filtre">
+            <label>Transporteur</label>
+            <input type="text" placeholder="Tous les transporteurs" list="filtre-transporteur" id="filtre-t">
+            <datalist id="filtre-transporteur"></datalist>
+          </div>
+          <div class="filtre">
+            <label>Client</label>
+            <input type="text" placeholder="Tous les clients" list="filtre-client" id="filtre-c">
+            <datalist id="filtre-client"></datalist>
+          </div>
+        </div>
+
+        <div class="separateur-filtre"></div>
+
+        <div class="groupe-filtre groupe-filtre-serveur">
+          <div class="filtre">
+            <label>Date de Début</label>
+            <input id="dateDebut" type="date">
+          </div>
+          <div class="filtre">
+            <label>Date de Fin</label>
+            <input id="dateFin" type="date">
+          </div>
+          <div class="actions-filtres">
+            <button type="button" class="btn-filtrer-date" onclick="filtrer()">Filtrer</button>
+          </div>
+        </div>
+
+        <div class="filtre-right">
+          <div class="onoffswitch">
+            <label class="toggle-masquer">
+              <span>Masquer terminés</span>
+              <input type="checkbox" id="myonoffswitch">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <button type="button" onclick="modifierModal('ecranModal')" class="btn1"><i class="fa-solid fa-display"></i></button>
+          <button type="button" onclick="modifierModal('quaiModal')" class="btn1"><i class="fa-solid fa-gear"></i></button>
+          <button type="button" onclick="reinitialiser()" class="btn1"><i class="fa-solid fa-rotate-right"></i></button>
+        </div>
+      </div>
+
+      <!-- TABLEAU -->
+      <table>
+        <thead>
+          <tr>
+            <th>DATE</th>
+            <th>TRANSPORTEUR</th>
+            <th>IMMATRICULATION</th>
+            <th>CLIENT</th>
+            <th>QUAI</th>
+            <th>STATUT</th>
+            <th class="colonne-heure">HEURE ARRIVÉE</th>
+            <th class="colonne-heure">HEURE PRÊT À CHARGER</th>
+            <th class="colonne-heure">HEURE DÉPART</th>
+            <th>PRESTATIONS</th>
+            <th>FICHE TEMP.</th>
+          </tr>
+        </thead>
+        <tbody id="corps-tableau">
+          <!-- Lignes injectées dynamiquement en JS -->
+        </tbody>
+      </table>
+
+      <!-- BLOC PAGINATION & COMPTEUR (Toujours visible) -->
+      <div id="conteneur-pagination" class="conteneur-pagination">
+        <button type="button" id="btn-page-prev" class="btn1 hidden" onclick="changerPage(-1)">
+          <i class="fa-solid fa-chevron-left"></i> Précédent
+        </button>
+        <span id="info-pagination" class="info-pagination">0 enregistrement</span>
+        <button type="button" id="btn-page-next" class="btn1 hidden" onclick="changerPage(1)">
+          Suivant <i class="fa-solid fa-chevron-right"></i>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- PANNEAU DE DÉTAIL À DROITE -->
+    <div id="formulaire-details" class="details-enregistrement cooper_col_back hidden">
+      <div class="form-header">
+        <h2>Détails de l'affectation</h2>
+        <button type="button" id="btn-annuler" class="modal-close-btn" onclick="changerClassFormulaire()">X</button>
+      </div>
+      <form class="formulaire-details" onsubmit="event.preventDefault(); envoyerEnregistrement(event);">
+
+        <!-- CHAMPS CACHÉS -->
+        <input type="hidden" id="idForm" name="idForm">
+        <input type="hidden" id="arrimage_paye">
+
+        <!-- Ligne 1 -->
+        <div class="form-ligne-3">
+          <div>
+            <label for="dateForm">Date<span class="cooperl_pink">*</span></label>
+            <input type="date" name="dateForm" id="dateForm" required />
+          </div>
+          <div>
+            <label for="statut">Statut</label>
+            <select name="statut" id="statut">
+              <option value="">-- Sélectionner --</option>
+            </select>
+          </div>
+          <div>
+            <label for="quai">Quai</label>
+            <select id="quai">
+              <option value="">-- Sélectionner --</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Ligne 2 -->
+        <div class="form-ligne-3">
+          <div>
+            <label for="transporteur">Transporteur<span class="cooperl_pink">*</span></label>
+            <input type="text" id="transporteur" list="liste-transporteur" required>
+            <datalist id="liste-transporteur"></datalist>
+          </div>
+          <div>
+            <label for="immatriculation">Immatriculation</label>
+            <input type="text" id="immatriculation">
+          </div>
+
+          <div>
+            <label for="client">Client<span class="cooperl_pink">*</span></label>
+            <input type="text" id="client" list="liste-client" required>
+            <datalist id="liste-client"></datalist>
+          </div>
+        </div>
+
+        <hr>
+
+        <!-- Ligne 3 : Heures -->
+        <div class="form-ligne-3">
+          <div>
+            <label for="heure-arrive">Heure d'arrivée</label>
+            <input type="time" id="heure-arrive">
+          </div>
+          <div>
+            <label for="heure-chg">Heure prêt à chg.</label>
+            <input type="time" id="heure-chg">
+          </div>
+          <div>
+            <label for="heure-depart">Heure de départ</label>
+            <input type="time" id="heure-depart">
+          </div>
+        </div>
+
+        <hr>
+        <!-- Ligne 5 : Checkboxes 1 -->
+        <div class="form-ligne-3">
+          <label id="celcius" for="feuille_temperature_generee">°C</i>
+          <input type="checkbox" id="feuille_temperature_generee"></label>
+
+          <label for="pesee_completee"><i class="fa-solid fa-scale-balanced"></i>
+          <input type="checkbox" id="pesee_completee"></label>
+
+          <label for="lavage_paye"><i class="fa-solid fa-droplet"></i>
+          <input type="checkbox" id="lavage_paye"></label>
+        </div>
+
+        <hr>
+        <!-- Ligne : Anomalie  -->
+        <div class="form-ligne-2">
+          <div>
+            <label for="type_anomalie">Type d'anomalie</label>
+            <select id="type_anomalie">
+              <option value="">-- Sélectionner --</option>
+            </select>
+          </div>
+          <button type="button" onclick="ajouterCarteAnomalie();">Générer</button>
+        </div>
+
+        <div id="zone-anomalies">
+          <!-- injection Js des forms anomalies -->
+        </div>
+
+
+        <hr>
+
+        <!-- Ligne: Commentaires (Pleine largeur) -->
+        <div class="form-colonne">
+          <label for="commentaire">Commentaires</label>
+          <textarea id="commentaire" rows="3" placeholder="Zone commentaire."></textarea>
+        </div>
+
+        <!-- Bouton pour enregistrer-->
+        <div class="form-ligne-1">
+          <button type="button" onclick="envoyerEnregistrement()" class="btn-pink-soft">Enregistrer</button>
+        </div>
+
+        <!-- Section : Feuille de température -->
+        <div id="section-temp">
+          <hr>
+          <!-- Section : Feuille de température -->
+          <div class="form-section-titre">
+            <span> Feuille de température</span>
+          </div>
+          <div class="form-ligne-temp">
+            <div class="bloc-champ">
+              <label for="input-num-semaine">Semaine</label>
+              <input type="number" min="1" max="53" name="input-num-semaine" id="input-num-semaine">
+            </div>
+            <div class="bloc-champ">
+              <label for="feuille-temperature">Type de document</label>
+              <select id="feuille-temperature">
+              <option value="">-- Sélectionner --</option>
+            </select>
+            </div>
+            <button type="button" class="btn-pink-soft" onclick="genererFeuilleTemp()">
+            Générer
+          </button>
+          </div>
+          <div id="zone-temperature">
+            <!-- Insertion JS des badges de feuilles de température -->
+          </div>
+        </div>
+
+        
+        <!-- Section : Lavage -->
+        <div id="section-lavage">
+          <hr>
+          <div class="form-section-titre">
+            <span> Prestation Lavage</span>
+          </div>
+          <div class="form-ligne-lavage">
+            <div class="bloc-champ">
+              <label for="input-lavage">Prix (€)</label>
+              <input type="number" min="1" value="25" name="input-lavage" id="input-lavage">
+            </div>
+            <div class="bloc-champ">
+              <label for="lavage-select">Paiement</label>
+              <select name="lavage-select" id="lavage-select">
+              <option value="Espèces">Espèces</option>
+              <option value="Carte bancaire">Carte bancaire</option>
+            </select>
+            </div>
+            <button type="button" id="btn-vente-lavage" class="btn-pink-soft" onclick="genererLavage()">
+            Facturer
+          </button>
+          </div>
+        </div>
+
+        <div id="section-arrimage">
+          <hr>
+          <!-- Section : Arrimage -->
+          <div class="form-section-titre">
+            <span> Barres d'arrimage</span>
+          </div>
+          <div class="form-ligne-arrimage">
+            <div class="bloc-champ">
+              <label for="input-arrimage">Nombre de barres</label>
+              <input type="number" min="1" value="1" placeholder="Ex: 2" name="input-arrimage" id="input-arrimage">
+            </div>
+            <button type="button" id="btn-vente-arrimage" class="btn-pink-soft" onclick="venteBarreArrimage()">
+             Enregistrer
+          </button>
+          </div>
+        </div>
+        <!-- Footer du formulaire -->
+        <div id ="form-footer" class="form-footer"><button type="button" class="btn-supprimer" onclick="modifierModal('suppressionModal')" title="Supprimer l'enregistrement">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <button class="btn-nouveau-rond" type="button" onclick="nouveauFormulaire()" title="Nouveau">+</button>
+
+
+  <!-- PARITIE MODALES -->
+
+  <!-- MODALE DE GESTION DE L'ÉTAT DES 9 QUAIS -->
+
+  <div class="modal hidden" id="quaiModal" onclick="if(event.target === this) modifierModal('quaiModal')">
+    <div class="modal-window">
+      <!-- Header -->
+      <div class="modal-header">
+        <h3>État d'exploitation des 9 Quais</h3>
+        <button type="button"  class="modal-close-btn" onclick="modifierModal('quaiModal')">X</button>
+
+      </div>
+
+      <!-- Body -->
+      <div id="modal-quai" class="modal-body">
+        <!-- code Js-->
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE DE COMMUNICATION AVEC ECRAN AFFICHAGE-->
+
+  <div class="modal hidden" id="ecranModal" onclick="if(event.target === this) modifierModal('ecranModal')">
+    <div class="modal-window">
+      <!-- Header -->
+      <div class="modal-header">
+        <h3>Communication avec l'écran d'affichage</h3>
+        <button type="button"  class="modal-close-btn" onclick="modifierModal('ecranModal')">X</button>
+      </div>
+
+      <!-- Onglet -->
+      <div class="modal-onglet">
+        <ul>
+          <li>
+            <button id="onglet_communication" class="onglet actif" onclick="basculerOnglet('onglet_communication','contenu-communication')">Affichage</button>
+          </li>
+          <li>
+            <button id="onglet_plan" class="onglet " onclick="basculerOnglet('onglet_plan','contenu-plan')">Plan</button>
+          </li>
+          <li>
+            <button id="onglet_instructions" class="onglet" onclick="basculerOnglet('onglet_instructions','contenu-instructions')">Instructions</button>
+          </li>
+
+        </ul>
+      </div>
+
+      <!-- Body -->
+      <div class="modal-body">
+
+        <!-- Partie affichage -->
+        <div id="contenu-communication" class="modal-contenu actif">
+          <div class="form-temps">
+            <label for="input-temps-quai">Temps de la page chargement (en s):</label>
+            <input type="number" min=1 name="input-temps-quai" id="input-temps-quai">
+            <label for="input-temps-attente">Temps de la page d'attente (en s):</label>
+            <input type="number" min=1 name="input-temps-attente" id="input-temps-attente">
+            <button type="button" id="btn-temps" onclick="envoyerTempsAffichage()">
+              Modifier
+            </button>
+          </div>
+
+          <div class="plan-actions-row">
+            <button type="button" id="pause" onclick="envoyerOrdrePause()" >
+              Pause de l'affichage alterné
+            </button>
+            <button type="button" onclick="envoyerOrdre('fids')" class="btn1">
+              Reprendre l'affichage alterné
+            </button>
+          </div>
+
+        </div>
+
+        <!-- Partie plan -->
+        <div class="modal-contenu" id="contenu-plan">
+
+          <!-- Ligne 1 : Label + Sélecteur  -->
+          <div class="form-colonne">
+            <label for="plan-select">Type de plan :</label>
+            <select name="plan-select" id="plan-select" onchange="modifierPrevisualisationPlan()">
+            <option value="">-- Par défaut --</option>
+            <option value="pesee"> Pesée </option>
+            <option value="lavage"> Lavage </option>
+            <option value="parkingAttente"> Parking en attente </option>
+            <option value="parkingAdministratif"> Parking attente administrative </option>
+            <option value="quai"> Quais </option>
+          </select>
+          </div>
+
+          <!-- Ligne 2 : Boutons d'action -->
+          <div class="plan-actions-row">
+            <button type="button" id="planOn" onclick="envoyerOrdre('plan')">
+            Afficher le plan
+          </button>
+            <button type="button" id="planOff" onclick="envoyerOrdre('fids')" class="btn1">
+            Masquer le plan
+          </button>
+          </div>
+
+          <!-- Ligne 3 : Zone de prévisualisation -->
+          <div id="apercu-plan-conteneur">
+            <span id="apercu-placeholder">Sélectionnez un plan pour afficher l'aperçu</span>
+            <div id="zone-svg-apercu" class="hidden"></div>
+          </div>
+        </div>
+
+        <!-- Partie traduction/instruction -->
+        <div id="contenu-instructions" class="modal-contenu">
+          <label for="instruction">Instruction</label>
+          <select name="instruction" id="instruction">
+              <option value="">-- Sélectionner --</option>
+            </select>
+
+          <label for="traduction">Traduction</label>
+          <select name="traduction" id="traduction">
+              <option value="">-- Sélectionner --</option>
+            </select>
+
+          <label for="variable_traduction" class="hidden">Variable</label>
+          <input type="text" id="variable_traduction" class="hidden" name="variable_traduction">
+
+          <div id="texte_fr"></div>
+
+          <div class="plan-actions-row">
+            <button type="button" id="instructionOn" onclick="envoyerInstruction()">
+              Envoyer l'instruction
+            </button>
+            <button type="button" id="instructionOff" onclick="envoyerOrdre('fids')" class="btn1" >
+              Masquer l'instruction
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODALE DE SUPPRESSION ENREGISTREMENT -->
+
+  <div class="modal hidden" id="suppressionModal" onclick="if(event.target === this) modifierModal('suppressionModal')">
+    <div class="modal-window">
+      <!-- Header -->
+      <div class="modal-header">
+        <h3>Voulez-vous supprimer cet enregistrement ?</h3>
+      </div>
+      <!-- Body -->
+      <div class="modal-body">
+        <div class="modal-actions">
+          <button type="button"  onclick="supprimerEnregistrement()" title="Supprimer l'enregistrement">
+            Oui
+          </button>
+          <button type="button" class="btn1" onclick="modifierModal('suppressionModal')">
+            Non 
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+
+  <!-- MODALE DE SUPPRESSION FEUILLE TEMPERATURE -->
+
+  <div class="modal hidden" id="suppressionModalTemp"
+    onclick="if(event.target === this) modifierModal('suppressionModalTemp')">
+    <div class="modal-window">
+      <!-- Header -->
+      <div class="modal-header">
+        <h3>Voulez-vous supprimer cette feuille température ?</h3>
+      </div>
+      <!-- Body -->
+      <div class="modal-body">
+        <div class="modal-actions">
+          <button type="button"  onclick="confirmerSuppressionDoc()" title="Supprimer l'enregistrement">
+            Oui
+          </button>
+          <button type="button" class="btn1" onclick="modifierModal('suppressionModalTemp')">
+            Non 
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE D'ABANDON -->
+
+  <div id="abandonModal" class="modal hidden">
+    <div class="modal-window">
+      <!-- Header -->
+      <div class="modal-header">
+        <h3>Modifications non enregistrées</h3>
+      </div>
+      <!-- Body -->
+      <div class="modal-body">
+        <p>Vous avez des modifications en cours dans le formulaire. Voulez-vous vraiment les abandonner ?</p>
+        <div class="modal-actions">
+          <button id="btn-confirmer-abandon">Oui</button>
+          <button id="btn-annuler-abandon" class="btn1">Non</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- FENÊTRE MODALE D'APERÇU ET D'ENVOI D'E-MAIL -->
+  <div id="modal-apercu-mail" class="modal hidden">
+    <div class="modal-window" style="max-width: 750px; width: 95%;">
+
+      <!-- En-tête de la modale -->
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-envelope"></i> Confirmation et envoi de la notification</h3>
+        <button type="button" class="modal-close-btn" onclick="modifierModal('modal-apercu-mail')">&times;</button>
+      </div>
+
+      <!-- Corps de la modale -->
+      <div class="modal-body">
+
+        <div class="form-ligne-double">
+          <div class="form-colonne">
+            <label for="mail-destinataire"><i class="fa-solid fa-paper-plane"></i> Destinataire (Transporteur) :</label>
+            <input type="email" multiple id="mail-destinataire" placeholder="ex: transporteur@exemple.com" value="">
+          </div>
+
+          <div class="form-colonne">
+            <label for="mail-cc"><i class="fa-solid fa-copy"></i> En copie :</label>
+            <input type="email" multiple id="mail-cc" value="jpb22@l-ex.fr" >
+          </div>
+        </div>
+
+        <!-- Objet du mail -->
+        <div class="form-colonne">
+          <label for="mail-sujet"><i class="fa-solid fa-tag"></i> Objet du message :</label>
+          <input type="text" id="mail-sujet" value="">
+        </div>
+
+        <!-- Pièce jointe -->
+        <div class="form-colonne">
+          <label for="mail-pj"><i class="fa-solid fa-paperclip"></i> Pièce jointe:</label>
+          <input type="file" id="mail-pj" style="width: 100%; color: #ffffff; font-size: 12px;">
+        </div>
+
+        <!-- Aperçu interactif du gabarit HTML -->
+        <div class="form-colonne">
+          <label style="justify-content: space-between; width: 100%;">
+            <span><i class="fa-solid fa-eye"></i> Aperçu du mail :</span>
+            <span style="font-size: 10px; opacity: 0.8; font-weight: normal; italic;"><i class="fa-solid fa-pen"></i> Cliquez dans la zone ci-dessous pour modifier le texte</span>
+          </label>
+
+          <div id="zone-corps-mail" contenteditable="true"
+            style="background-color: #ffffff; color: #000000; padding: 16px; border-radius: 6px; border: 1px solid #14617d; max-height: 320px; overflow-y: auto; text-align: left; width: 100%; box-sizing: border-box;">
+            <!-- Le contenu du fichier mailGabarit.html sera généré et injecté dynamiquement ici -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Actions / Boutons au pied de la modale -->
+      <div class="modal-actions">
+        <button type="button" class="btn1" onclick="modifierModal('modal-apercu-mail')">
+          Ne pas envoyer
+        </button>
+        <button type="button" class="btn-pink-soft" onclick="confirmerEtEnvoyerMail()">
+           Valider et envoyer le mail
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+
+</div>
